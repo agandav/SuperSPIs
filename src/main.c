@@ -19,13 +19,24 @@
 #define TIMING_WINDOW 5                  // Timing window (in ms) for scoring
 
 // Pin definitions for RGB LED matrix
-#define DATA_PIN    GPIO_PIN_0   // Data line for RGB matrix
-#define CLK_PIN     GPIO_PIN_1   // Clock line
-#define LAT_PIN     GPIO_PIN_2   // Latch line
-#define OE_PIN      GPIO_PIN_3   // Output Enable line
-#define RGB_PORT    GPIOA        // Port for the RGB matrix pins
-#define BUTTON_PIN GPIO_PIN_4 // Button GPIO pin
-#define BUTTON_PORT GPIOB     // Button GPIO port
+// Bit Banging Bus Pins
+#define A1_PIN (1 << 7)
+#define A2_PIN (1 << 5) 
+#define A3_PIN (1 << 3)
+#define A4_PIN (1 << 1)
+#define B1_PIN (1 << 0)
+#define B2_PIN (1 << 2)
+#define B3_PIN (1 << 4) 
+#define B4_PIN (1 << 6)
+#define OE_PIN (1 << 8)
+#define CLK_PIN (1 << 9)
+#define C_PIN (1 << 10)
+#define A_PIN (1 << 11)
+#define LAT_PIN (1 << 12)
+#define BUTTON_PIN (1 << 4)
+#define BUTTON_PORT GPIOB
+#define BIT_BANGING_PORT GPIOB
+#define TARGET_POSITION 0 // Replace with the desired target position for the note
 
 // Game variables
 volatile uint16_t score = 0;
@@ -97,36 +108,25 @@ int main(void) {
 
 // Initialize RGB LED Matrix
 void LED_Matrix_Init(void) {
-    // Enable clock for GPIOA
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+    // Enable clock for GPIOB
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 
-    // Configure DATA, CLK, LAT, and OE pins as output
-    GPIOA->MODER &= ~(GPIO_MODER_MODER0_Msk | GPIO_MODER_MODER1_Msk | 
-                      GPIO_MODER_MODER2_Msk | GPIO_MODER_MODER3_Msk); // Clear mode bits
-    GPIOA->MODER |= (GPIO_MODER_MODER0_0 | GPIO_MODER_MODER1_0 | 
-                     GPIO_MODER_MODER2_0 | GPIO_MODER_MODER3_0);      // Set to output mode
+    // Configure bit banging pins as outputs
+    GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
+                    GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
+                    GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
+                    GPIO_MODER_MODER12_0);
 
-    // Set all pins to high speed
-    GPIOA->OSPEEDR |= (0x3 << (0 * 2));  // Pin 0: High speed
-    GPIOA->OSPEEDR |= (0x3 << (1 * 2));  // Pin 1: High speed
-    GPIOA->OSPEEDR |= (0x3 << (2 * 2));  // Pin 2: High speed
-    GPIOA->OSPEEDR |= (0x3 << (3 * 2));  // Pin 3: High speed
-
-    // Configure pins as push-pull output
-    GPIOA->OTYPER &= ~(GPIO_OTYPER_OT_0 | GPIO_OTYPER_OT_1 |
-                       GPIO_OTYPER_OT_2 | GPIO_OTYPER_OT_3);
-
-    // No pull-up or pull-down
-    GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR0_Msk | GPIO_PUPDR_PUPDR1_Msk |
-                      GPIO_PUPDR_PUPDR2_Msk | GPIO_PUPDR_PUPDR3_Msk);
+    // Set high speed
+    GPIOB->OSPEEDR |= 0xFFFFFFFF;
 }
 
 void sendBit(uint8_t bit) {
     // Write DATA line based on bit
     if (bit) {
-        GPIOA->BSRR = DATA_PIN; // Set pin high
+        GPIOB->BSRR = (A1_PIN | A2_PIN | A3_PIN | A4_PIN | B1_PIN | B2_PIN | B3_PIN | B4_PIN);
     } else {
-        GPIOA->BRR = DATA_PIN;  // Set pin low
+        GPIOB->BSRR = (A1_PIN | A2_PIN | A3_PIN | A4_PIN | B1_PIN | B2_PIN | B3_PIN | B4_PIN);
     }
 
     // Pulse the clock
