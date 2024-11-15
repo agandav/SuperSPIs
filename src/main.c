@@ -34,10 +34,15 @@ uint8_t current_note_index = 0;                     // Tracks the index of the c
 uint32_t note_timing[LED_MATRIX_WIDTH];             // Array to track expected timing for each note
 
 // Function Prototypes
-void SystemClock_Config(void);
+//void SystemClock_Config(void);
 void LED_Matrix_Init(void);
+void sendBit(uint8_t bit);
+void latchData(void);
+void updateMatrix(uint8_t *framebuffer, size_t size);
 void LED_Matrix_Update(void);
-void Button_Input_Init(void);
+void initButton(void);
+int isButtonPressed(void);
+void checkButtonHit(uint8_t notePosition);
 void DAC_Audio_Init(void);
 void Play_Note_Sound(int hit);
 void I2C_Init(void);
