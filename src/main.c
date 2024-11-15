@@ -1,9 +1,12 @@
-#include "stm32f4xx.h"
-#include "i2c.h"
-#include "gpio.h"
-#include "tim.h"
-#include "dac.h"
-#include "dma.h"
+#include "stm32f0xx.h"
+#include <stdio.h>//"i2c.h"
+#include <math.h>   // for M_PI
+#include <stdint.h>
+
+//#include "gpio.h"
+//#include "tim.h"
+// #include "dac.h"
+// #include "dma.h"
 
 // Definitions for game parameters and hardware setup
 #define LED_MATRIX_WIDTH 64
@@ -94,7 +97,7 @@ int main(void) {
 
 // Initialize RGB LED Matrix
 void LED_Matrix_Init(void) {
-// Enable clock for GPIOA
+    // Enable clock for GPIOA
     RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
     // Configure DATA, CLK, LAT, and OE pins as output
@@ -103,11 +106,19 @@ void LED_Matrix_Init(void) {
     GPIOA->MODER |= (GPIO_MODER_MODER0_0 | GPIO_MODER_MODER1_0 | 
                      GPIO_MODER_MODER2_0 | GPIO_MODER_MODER3_0);      // Set to output mode
 
-    GPIOA->OTYPER &= ~(GPIO_OTYPER_OT_0 | GPIO_OTYPER_OT_1 |
-                       GPIO_OTYPER_OT_2 | GPIO_OTYPER_OT_3);          // Push-pull output
+    // Set all pins to high speed
+    GPIOA->OSPEEDR |= (0x3 << (0 * 2));  // Pin 0: High speed
+    GPIOA->OSPEEDR |= (0x3 << (1 * 2));  // Pin 1: High speed
+    GPIOA->OSPEEDR |= (0x3 << (2 * 2));  // Pin 2: High speed
+    GPIOA->OSPEEDR |= (0x3 << (3 * 2));  // Pin 3: High speed
 
-    GPIOA->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR0_Msk | GPIO_OSPEEDER_OSPEEDR1_Msk |
-                       GPIO_OSPEEDER_OSPEEDR2_Msk | GPIO_OSPEEDER_OSPEEDR3_Msk); // High speed
+    // Configure pins as push-pull output
+    GPIOA->OTYPER &= ~(GPIO_OTYPER_OT_0 | GPIO_OTYPER_OT_1 |
+                       GPIO_OTYPER_OT_2 | GPIO_OTYPER_OT_3);
+
+    // No pull-up or pull-down
+    GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR0_Msk | GPIO_PUPDR_PUPDR1_Msk |
+                      GPIO_PUPDR_PUPDR2_Msk | GPIO_PUPDR_PUPDR3_Msk);
 }
 
 void sendBit(uint8_t bit) {

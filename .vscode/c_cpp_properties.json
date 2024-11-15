@@ -8,19 +8,19 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "C:/Users/User/OneDrive/Documents/GitHub/ECE 362/SuperSPIs/include",
-                "C:/Users/User/OneDrive/Documents/GitHub/ECE 362/SuperSPIs/src",
-                "C:/Users/User/.platformio/packages/framework-cmsis/CMSIS/Include",
-                "C:/Users/User/.platformio/packages/framework-cmsis-stm32f0/Include",
+                "C:/Users/Tanvi/SuperSPIs/include",
+                "C:/Users/Tanvi/SuperSPIs/src",
+                "C:/Users/Tanvi/.platformio/packages/framework-cmsis/CMSIS/Include",
+                "C:/Users/Tanvi/.platformio/packages/framework-cmsis-stm32f0/Include",
                 ""
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "C:/Users/User/OneDrive/Documents/GitHub/ECE 362/SuperSPIs/include",
-                    "C:/Users/User/OneDrive/Documents/GitHub/ECE 362/SuperSPIs/src",
-                    "C:/Users/User/.platformio/packages/framework-cmsis/CMSIS/Include",
-                    "C:/Users/User/.platformio/packages/framework-cmsis-stm32f0/Include",
+                    "C:/Users/Tanvi/SuperSPIs/include",
+                    "C:/Users/Tanvi/SuperSPIs/src",
+                    "C:/Users/Tanvi/.platformio/packages/framework-cmsis/CMSIS/Include",
+                    "C:/Users/Tanvi/.platformio/packages/framework-cmsis-stm32f0/Include",
                     ""
                 ]
             },
@@ -32,7 +32,7 @@
                 "STM32F091",
                 ""
             ],
-            "compilerPath": "C:/Users/User/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
+            "compilerPath": "C:/Users/Tanvi/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
             "compilerArgs": [
                 "-mthumb",
                 "-mcpu=cortex-m0",
