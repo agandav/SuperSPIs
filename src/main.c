@@ -15,6 +15,15 @@
 #define I2C_TIMING 0x00B01A4B            // Timing for 400kHz with 48MHz clock
 #define TIMING_WINDOW 5                  // Timing window (in ms) for scoring
 
+// Pin definitions for RGB LED matrix
+#define DATA_PIN    GPIO_PIN_0   // Data line for RGB matrix
+#define CLK_PIN     GPIO_PIN_1   // Clock line
+#define LAT_PIN     GPIO_PIN_2   // Latch line
+#define OE_PIN      GPIO_PIN_3   // Output Enable line
+#define RGB_PORT    GPIOA        // Port for the RGB matrix pins
+#define BUTTON_PIN GPIO_PIN_4 // Button GPIO pin
+#define BUTTON_PORT GPIOB     // Button GPIO port
+
 // Game variables
 volatile uint16_t score = 0;
 volatile uint16_t high_score = 0;
@@ -45,7 +54,7 @@ void Display_High_Score(void);
 // Main Function
 int main(void) {
     HAL_Init();                      // Initialize the HAL library
-    SystemClock_Config();            // Configure system clock
+    internal_clock();//SystemClock_Config();            // Configure system clock
     I2C_Init();                      // Initialize I2C for OLED and EEPROM
     LED_Matrix_Init();               // Initialize RGB LED Matrix
     Button_Input_Init();             // Initialize GPIO buttons
@@ -74,13 +83,60 @@ int main(void) {
 }
 
 // System Clock Configuration
-void SystemClock_Config(void) {
+//void SystemClock_Config(void) {
     // Configure system clock based on STM32 model
-}
+//}
 
 // Initialize RGB LED Matrix
 void LED_Matrix_Init(void) {
-    // Set GPIO pins and initialize for LED Matrix control
+// Enable clock for GPIOA
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
+    // Configure DATA, CLK, LAT, and OE pins as output
+    GPIOA->MODER &= ~(GPIO_MODER_MODER0_Msk | GPIO_MODER_MODER1_Msk | 
+                      GPIO_MODER_MODER2_Msk | GPIO_MODER_MODER3_Msk); // Clear mode bits
+    GPIOA->MODER |= (GPIO_MODER_MODER0_0 | GPIO_MODER_MODER1_0 | 
+                     GPIO_MODER_MODER2_0 | GPIO_MODER_MODER3_0);      // Set to output mode
+
+    GPIOA->OTYPER &= ~(GPIO_OTYPER_OT_0 | GPIO_OTYPER_OT_1 |
+                       GPIO_OTYPER_OT_2 | GPIO_OTYPER_OT_3);          // Push-pull output
+
+    GPIOA->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR0_Msk | GPIO_OSPEEDER_OSPEEDR1_Msk |
+                       GPIO_OSPEEDER_OSPEEDR2_Msk | GPIO_OSPEEDER_OSPEEDR3_Msk); // High speed
+}
+
+void sendBit(uint8_t bit) {
+    // Write DATA line based on bit
+    if (bit) {
+        GPIOA->BSRR = DATA_PIN; // Set pin high
+    } else {
+        GPIOA->BRR = DATA_PIN;  // Set pin low
+    }
+
+    // Pulse the clock
+    GPIOA->BSRR = CLK_PIN;  // Set CLK high
+    GPIOA->BRR = CLK_PIN;   // Set CLK low
+}
+
+void latchData(void) {
+    // Pulse the latch line
+    GPIOA->BSRR = LAT_PIN; // Set LAT high
+    GPIOA->BRR = LAT_PIN;  // Set LAT low
+}
+
+void updateMatrix(uint8_t *framebuffer, size_t size) {
+    // Disable the display during update (OE high)
+    GPIOA->BSRR = OE_PIN;
+
+    for (size_t i = 0; i < size; i++) {
+        sendBit(framebuffer[i]);
+    }
+
+    // Latch the data to the matrix
+    latchData();
+
+    // Enable the display (OE low)
+    GPIOA->BRR = OE_PIN;
 }
 
 // Update LED Matrix to display falling notes
@@ -101,8 +157,36 @@ void LED_Matrix_Update(void) {
 }
 
 // Initialize GPIO Pins for Button Inputs
-void Button_Input_Init(void) {
-    // Set GPIO pins for button inputs to detect player hits
+void initButton(void) {
+    // Enable clock for GPIOB
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+
+    // Configure BUTTON_PIN as input
+    GPIOB->MODER &= ~GPIO_MODER_MODER4_Msk; // Input mode
+    GPIOB->PUPDR |= GPIO_PUPDR_PUPDR4_0;   // Pull-up
+}
+
+int isButtonPressed(void) {
+    // Check if button is pressed (active low)
+    return !(GPIOB->IDR & BUTTON_PIN); // Returns 1 if pressed
+}
+
+void checkButtonHit(uint8_t notePosition) {
+    static uint32_t lastPressTime = 0;
+    uint32_t currentTime = HAL_GetTick(); // Get current system time in ms
+
+    if (isButtonPressed()) {
+        // Debounce button: Ensure at least 200ms between presses
+        if (currentTime - lastPressTime > 200) {
+            lastPressTime = currentTime; // Update last press time
+
+            if (notePosition == TARGET_POSITION) { // Synchronize with note
+                printf("Hit!\n");
+            } else {
+                printf("Miss.\n");
+            }
+        }
+    }
 }
 
 // Initialize DAC for Audio Playback
