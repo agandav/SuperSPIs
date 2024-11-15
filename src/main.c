@@ -50,7 +50,7 @@ uint32_t note_timing[LED_MATRIX_WIDTH];             // Array to track expected t
 // Function Prototypes
 //void SystemClock_Config(void);
 void LED_Matrix_Init(void);
-void sendBit(uint8_t bit);
+void sendBit(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
 void updateMatrix(uint8_t *framebuffer, size_t size);
 void LED_Matrix_Update(void);
@@ -121,14 +121,25 @@ void LED_Matrix_Init(void) {
     GPIOB->OSPEEDR |= 0xFFFFFFFF;
 }
 
-void sendBit(uint8_t bit) {
-    // Write DATA line based on bit
-    if (bit) {
-        GPIOB->BSRR = (A1_PIN | A2_PIN | A3_PIN | A4_PIN | B1_PIN | B2_PIN | B3_PIN | B4_PIN);
+void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
+    // Write data lines based on RGB values
+    if (red) {
+        GPIOB->BSRR = A2_PIN | B2_PIN;
     } else {
-        GPIOB->BSRR = (A1_PIN | A2_PIN | A3_PIN | A4_PIN | B1_PIN | B2_PIN | B3_PIN | B4_PIN);
+        GPIOB->BRR = A2_PIN | B2_PIN;
     }
 
+    if (green) {
+        GPIOB->BSRR = B1_PIN;
+    } else {
+        GPIOB->BRR = B1_PIN;
+    }
+
+    if (blue) {
+        GPIOB->BSRR = A3_PIN | B3_PIN;
+    } else {
+        GPIOB->BRR = A3_PIN | B3_PIN;
+    }
     // Pulse the clock
     GPIOA->BSRR = CLK_PIN;  // Set CLK high
     GPIOA->BRR = CLK_PIN;   // Set CLK low
@@ -145,7 +156,10 @@ void updateMatrix(uint8_t *framebuffer, size_t size) {
     GPIOA->BSRR = OE_PIN;
 
     for (size_t i = 0; i < size; i++) {
-        sendBit(framebuffer[i]);
+        uint8_t red = framebuffer[i] & 0xFF;
+        uint8_t green = (framebuffer[i] >> 8) & 0xFF;
+        uint8_t blue = (framebuffer[i] >> 16) & 0xFF;
+        sendBit(red, green, blue);
     }
 
     // Latch the data to the matrix
