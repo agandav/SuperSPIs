@@ -31,11 +31,11 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug",
-            "executable": "C:/Users/Tanvi/SuperSPIs/.pio/build/nucleo_f091rc/firmware.elf",
+            "executable": "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/.pio/build/nucleo_f091rc/firmware.elf",
             "projectEnvName": "nucleo_f091rc",
-            "toolchainBinDir": "C:/Users/Tanvi/.platformio/packages/toolchain-gccarmnoneeabi/bin",
+            "toolchainBinDir": "C:/Users/User/.platformio/packages/toolchain-gccarmnoneeabi/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/Tanvi/.platformio/platforms/ststm32/misc/svd/STM32F091x.svd",
+            "svdPath": "C:/Users/User/.platformio/platforms/ststm32/misc/svd/STM32F091x.svd",
             "preLaunchTask": {
                 "type": "PlatformIO",
                 "task": "Pre-Debug"
@@ -45,21 +45,21 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
-            "executable": "C:/Users/Tanvi/SuperSPIs/.pio/build/nucleo_f091rc/firmware.elf",
+            "executable": "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/.pio/build/nucleo_f091rc/firmware.elf",
             "projectEnvName": "nucleo_f091rc",
-            "toolchainBinDir": "C:/Users/Tanvi/.platformio/packages/toolchain-gccarmnoneeabi/bin",
+            "toolchainBinDir": "C:/Users/User/.platformio/packages/toolchain-gccarmnoneeabi/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/Tanvi/.platformio/platforms/ststm32/misc/svd/STM32F091x.svd"
+            "svdPath": "C:/Users/User/.platformio/platforms/ststm32/misc/svd/STM32F091x.svd"
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (without uploading)",
-            "executable": "C:/Users/Tanvi/SuperSPIs/.pio/build/nucleo_f091rc/firmware.elf",
+            "executable": "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/.pio/build/nucleo_f091rc/firmware.elf",
             "projectEnvName": "nucleo_f091rc",
-            "toolchainBinDir": "C:/Users/Tanvi/.platformio/packages/toolchain-gccarmnoneeabi/bin",
+            "toolchainBinDir": "C:/Users/User/.platformio/packages/toolchain-gccarmnoneeabi/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/Tanvi/.platformio/platforms/ststm32/misc/svd/STM32F091x.svd",
+            "svdPath": "C:/Users/User/.platformio/platforms/ststm32/misc/svd/STM32F091x.svd",
             "loadMode": "manual"
         }
     ]

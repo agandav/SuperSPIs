@@ -2,6 +2,11 @@
 #include <stdio.h>//"i2c.h"
 #include <math.h>   // for M_PI
 #include <stdint.h>
+#include "whitestripes.h"
+#include <stdlib.h> // for abs()
+#include "stm32f0xx_hal.h"
+
+
 
 //#include "gpio.h"
 //#include "tim.h"
@@ -17,6 +22,8 @@
 #define EEPROM_HIGH_SCORE_ADDRESS 0x52   // EEPROM address for high score
 #define I2C_TIMING 0x00B01A4B            // Timing for 400kHz with 48MHz clock
 #define TIMING_WINDOW 5                  // Timing window (in ms) for scoring
+#define TARGET_POSITION 0                // Replace with desired target position for the note
+#define MAX_MISSES 5                     // Maximum number of missed notes allowed
 
 // Pin definitions for RGB LED matrix
 // Bit Banging Bus Pins
@@ -46,6 +53,8 @@ uint8_t oled_data_buffer[16];                       // Buffer for OLED display d
 uint8_t audio_data_buffer[128];                     // Buffer for audio data
 uint8_t current_note_index = 0;                     // Tracks the index of the current note
 uint32_t note_timing[LED_MATRIX_WIDTH];             // Array to track expected timing for each note
+volatile uint8_t missed_notes = 0;
+
 
 // Function Prototypes
 //void SystemClock_Config(void);
@@ -73,10 +82,10 @@ void Display_High_Score(void);
 // Main Function
 int main(void) {
     HAL_Init();                      // Initialize the HAL library
-    internal_clock();//SystemClock_Config();            // Configure system clock
+    //internal_clock();//SystemClock_Config();            // Configure system clock
     I2C_Init();                      // Initialize I2C for OLED and EEPROM
     LED_Matrix_Init();               // Initialize RGB LED Matrix
-    Button_Input_Init();             // Initialize GPIO buttons
+    //Button_Input_Init();             // Initialize GPIO buttons
     DAC_Audio_Init();                // Initialize DAC for sound playback
 
     high_score = I2C_EEPROM_Read_HighScore();  // Retrieve saved high score
@@ -186,6 +195,12 @@ void LED_Matrix_Update(void) {
     }
 }
 
+/* int __io_putchar(int ch) {
+    // Implement this based on your UART configuration, for example:
+    ITM_SendChar(ch);
+    return ch;
+}
+*/
 // Initialize GPIO Pins for Button Inputs
 void initButton(void) {
     // Enable clock for GPIOB
@@ -222,14 +237,16 @@ void checkButtonHit(uint8_t notePosition) {
 // Initialize DAC for Audio Playback
 void DAC_Audio_Init(void) {
     // Initialize DAC channels for music playback and note sound effects
+    RCC->APB1ENR |= RCC_APB1ENR_DACEN;  // Enable DAC clock
+    DAC->CR |= DAC_CR_EN1;              // Enable DAC channel 1
 }
 
 // Play Sound for Note Hit or Miss
 void Play_Note_Sound(int hit) {
     if (hit) {
-        // Generate sound for successful hit
+        DAC->DHR8R1 = 0xFF;  // Example max amplitude
     } else {
-        // Generate sound for missed note
+        DAC->DHR8R1 = 0x80;  // Example lower amplitude
     }
 }
 
@@ -246,28 +263,30 @@ void OLED_Display_Score_DMA(uint16_t score) {
     I2C2->CR2 = (OLED_ADDRESS << 1) | (sizeof(oled_data_buffer) << 16) | I2C_CR2_AUTOEND;
     I2C2->CR2 |= I2C_CR2_START;
 
-    DMA1_Stream6->M0AR = (uint32_t)oled_data_buffer;
-    DMA1_Stream6->PAR = (uint32_t)&I2C2->TXDR;
-    DMA1_Stream6->NDTR = sizeof(oled_data_buffer);
-    DMA1_Stream6->CR |= DMA_SxCR_EN;
+    DMA1_Channel2->CMAR = (uint32_t)oled_data_buffer;
+    DMA1_Channel2->CPAR = (uint32_t)&I2C2->TXDR;
+    DMA1_Channel2->CNDTR = sizeof(oled_data_buffer);
+    DMA1_Channel2->CCR |= DMA_CCR_EN;
 }
+// page 205 & 943
 
 // Start receiving audio data from EEPROM using DMA
 void Start_Audio_DMA(void) {
     I2C2->CR2 = I2C_CR2_RD_WRN | (sizeof(audio_data_buffer) << 16) | (EEPROM_AUDIO_ADDRESS << 1) | I2C_CR2_AUTOEND;
     I2C2->CR2 |= I2C_CR2_START;
 
-    DMA1_Stream3->M0AR = (uint32_t)audio_data_buffer;
-    DMA1_Stream3->PAR = (uint32_t)&I2C2->RXDR;
-    DMA1_Stream3->NDTR = sizeof(audio_data_buffer);
-    DMA1_Stream3->CR |= DMA_SxCR_EN;
+    DMA1_Channel3->CMAR = (uint32_t)audio_data_buffer;
+    DMA1_Channel3->CPAR = (uint32_t)&I2C2->RXDR;
+    DMA1_Channel3->CNDTR = sizeof(audio_data_buffer);
+    DMA1_Channel3->CCR |= DMA_CCR_EN;
 }
 
 // Play audio track from received data buffer using DAC
 void Play_Audio_Track(void) {
-    for (int i = 0; i < sizeof(audio_data_buffer); i++) {
-        DAC->DHR8R1 = audio_data_buffer[i];
-        micro_wait(2500);  // Adjust delay for playback rate
+    for (unsigned int i = 0; i < whitestripes_audio_data_len; i++) {
+        while (!(TIM2->SR & TIM_SR_UIF));  // Wait for timer overflow
+        TIM2->SR &= ~TIM_SR_UIF;           // Clear update interrupt flag
+        DAC->DHR8R1 = whitestripes_audio_data[i];  // Set DAC output to current sample value
     }
 }
 
@@ -275,11 +294,8 @@ void Play_Audio_Track(void) {
 void Detect_Note_Hit(uint32_t current_time) {
     for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
         if (note_positions[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
-            if (GPIO_ReadInputDataBit(GPIO_PORT, GPIO_PIN)) {
-                // Check timing window
+            if (isButtonPressed()) {
                 int timing_difference = abs((int)(current_time - note_timing[i]));
-                
-                // Scoring based on timing accuracy
                 if (timing_difference <= TIMING_WINDOW) {
                     score += 10;  // Perfect hit
                     Play_Note_Sound(1);  // Hit sound
@@ -292,6 +308,7 @@ void Detect_Note_Hit(uint32_t current_time) {
                 }
             } else {
                 Play_Note_Sound(0);   // Missed sound
+                missed_notes++;
             }
             note_positions[i] = 0;    // Reset note position
         }
@@ -300,8 +317,8 @@ void Detect_Note_Hit(uint32_t current_time) {
 
 // Check if game is over (e.g., time limit or max misses)
 int Game_Over(void) {
-    // Define game over condition, such as time or misses
-    return 0; // Placeholder
+    printf("Game over, you lose!");
+    return missed_notes >= MAX_MISSES; // Placeholder condition
 }
 
 // Reset Game State
@@ -323,6 +340,26 @@ uint16_t I2C_EEPROM_Read_HighScore(void) {
     return high_score;
 }
 
-// Write High Score to EEPROM
+// Write high score to EEPROM
 void I2C_EEPROM_Write_HighScore(uint16_t score) {
-    I2C2->CR2
+    I2C1->CR2 = (EEPROM_HIGH_SCORE_ADDRESS << 1) | (2 << 16) | I2C_CR2_AUTOEND;
+    I2C1->CR2 |= I2C_CR2_START;
+    I2C1->TXDR = (score & 0xFF);  // Write low byte
+    while (!(I2C1->ISR & I2C_ISR_TXE));
+    I2C1->TXDR = (score >> 8);    // Write high byte
+}
+
+// Reset game state
+/* void Game_Reset(void) {
+    score = 0;
+    for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
+        note_positions[i] = 0;
+    }
+}
+*/
+// Check if game is over
+
+// Display high score
+void Display_High_Score(void) {
+    printf("High Score: %d\n", high_score);  // Replace with OLED update logic
+}
