@@ -8,8 +8,8 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/include",
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/src",
+                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/include",
+                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/src",
                 "C:/Users/User/.platformio/packages/framework-stm32cubef0/Drivers/CMSIS/Include",
                 "C:/Users/User/.platformio/packages/framework-stm32cubef0/Drivers/CMSIS/Device/ST/STM32F0xx/Include",
                 "C:/Users/User/.platformio/packages/framework-stm32cubef0/Drivers/STM32F0xx_HAL_Driver/Inc",
@@ -45,8 +45,8 @@
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/include",
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/SuperSPIs/src",
+                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/include",
+                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/src",
                     "C:/Users/User/.platformio/packages/framework-stm32cubef0/Drivers/CMSIS/Include",
                     "C:/Users/User/.platformio/packages/framework-stm32cubef0/Drivers/CMSIS/Device/ST/STM32F0xx/Include",
                     "C:/Users/User/.platformio/packages/framework-stm32cubef0/Drivers/STM32F0xx_HAL_Driver/Inc",
