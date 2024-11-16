@@ -63,7 +63,6 @@ void setup_bb(void);
 void init_usart5(void);
 void initc(void);
 void initb(void);
-void LED_Matrix_Init(void);
 void LED_Matrix_Update(void);
 void sendBit(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
@@ -90,20 +89,32 @@ int main(void) {
     SystemInit();                    // CMSIS System Initialization
     SysTick_Config(SystemCoreClock / 1000);  // 1ms Systick for timing
 
-    setup_bb();  // Setup GPIO pins for bit-bang SPI
-
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
     initc();
-    initb();
-    DAC_Audio_Init();  // Initialize DAC
-    I2C_Init();  // Initialize I2C for EEPROM/OLED
-    LED_Matrix_Init();  // Initialize the GPIO for matrix (if needed)
+    // DAC_Audio_Init();  // Initialize DAC
+    // I2C_Init();  // Initialize I2C for EEPROM/OLED
+    LED_Matrix_init();  // Initialize the GPIO for matrix (if needed)
+
+    GPIOB->BRR = A_PIN | B_PIN | C_PIN | D_PIN ;
+    GPIOB->BRR = OE_PIN | CLK_PIN | LAT_PIN;
+    for(int i = 0; i<64; i++){
+    sendBit(0,0,1);
+    }
+    latchData();
+    
+    
+    for(int i = 0; i<16; i++){
+    turnCol(i);
+    nano_wait(1000000000);
+    }
+    
+
 
     // Main loop
-    while (1) {
+    // while (1) {
         // Bit-banging LED matrix update
-        LED_Matrix_Update();             // Update falling notes
+        // LED_Matrix_Update();             // Update falling notes
         // uint32_t current_time = SysTick->VAL;  // Get current time in ms
         // Detect_Note_Hit(current_time);       // Check for user input and hits
         // Play_Audio_Track();                  // Play background music
@@ -119,29 +130,37 @@ int main(void) {
         //     Display_High_Score();  // Show high score on OLED
         //     Game_Reset();          // Restart the game
         // }
-    }
+    // }
 }
 
+void turnCol(uint8_t colnum){
+    if (colnum && 0x1){
+        GPIOB->BSRR = D_PIN;
+    }else{
+        GPIOB->BRR = D_PIN ;
+    }
+    if (colnum && 0x2){
+        GPIOB->BSRR = D_PIN;
+    }else{
+        GPIOB->BRR = D_PIN ;
+    }
+    if (colnum && 0x4){
+        GPIOB->BSRR = D_PIN;
+    }else{
+        GPIOB->BRR = D_PIN ;
+    }
+    if (colnum && 0x8){
+        GPIOB->BSRR = D_PIN;
+    }else{
+        GPIOB->BRR = D_PIN ;
+    }
+
+}
 
 // System Clock Configuration
 //void SystemClock_Config(void) {
     // Configure system clock based on STM32 model
 //}
-
-// Setup GPIO for Bit-Banging
-void setup_bb(void) {
-    // Enable clock for GPIOB
-    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
-
-    // Configure GPIO pins as outputs for LED matrix control
-    GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
-                    GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
-                    GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
-                    GPIO_MODER_MODER12_0);
-
-    // Set high speed for GPIO pins
-    GPIOB->OSPEEDR |= 0xFFFFFFFF;
-}
 
 void initc(void) {
     // Only enable port C for the keypad
@@ -150,22 +169,18 @@ void initc(void) {
     GPIOC->PUPDR &= 0xfffffff0;
 }
 
-void initb() {
+void LED_Matrix_init() {
   RCC->AHBENR |=RCC_AHBENR_GPIOBEN;
 
   // Set pins PB0-PB4 as outputs
-  GPIOB->MODER &= 0x00000000;
+    GPIOB->MODER &= 0x00000000;
 
-  GPIOB->MODER |= (GPIO_MODER_MODER0_0 | GPIO_MODER_MODER1_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER3_0
+    GPIOB->MODER |= (GPIO_MODER_MODER0_0 | GPIO_MODER_MODER1_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER3_0
                     |GPIO_MODER_MODER4_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER6_0 | GPIO_MODER_MODER7_0
                     | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0
                     | GPIO_MODER_MODER12_0);
-
-   // GPIOB->ODR = 0x00000084;
-
+    GPIOB->OSPEEDR |= 0xFFFFFFFF;
 }
-
-
 
 
 void init_usart5() {
@@ -274,22 +289,6 @@ void USART3_8_IRQHandler(void) {
     }
 }
 
-
-// Initialize RGB LED Matrix
- void LED_Matrix_Init(void) {
-     // Enable clock for GPIOB
-    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
-
-    // Configure bit banging pins as outputs
-    GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
-                    GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
-                    GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
-                    GPIO_MODER_MODER12_0);
-
-    // Set high speed
-    GPIOB->OSPEEDR |= 0xFFFFFFFF;
-}
-
 // Send bit to LED matrix
 // Send bit to LED matrix
 void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
@@ -311,13 +310,14 @@ void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
         GPIOB->BRR = B1_PIN | B2_PIN;
     }
     GPIOA->BSRR = CLK_PIN;  // Set CLK high
-    nano_wait(1000);
+    nano_wait(10000);
     GPIOA->BRR = CLK_PIN;   // Set CLK low
 }
 
 // Pulse the latch line
 void latchData(void) {
     GPIOA->BSRR = LAT_PIN; // Set LAT high
+    nano_wait(1000);
     GPIOA->BRR = LAT_PIN;  // Set LAT low
 }
 
