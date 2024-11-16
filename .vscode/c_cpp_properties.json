@@ -1,52 +1,42 @@
-//
-// !!! WARNING !!! AUTO-GENERATED FILE!
-// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
-// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
-//
 {
-    "configurations": [
-        {
-            "name": "PlatformIO",
-            "includePath": [
-                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/src",
-                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/lib",
-                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/include",
-                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
-                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
-                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
-                "C:/Users/david/.platformio/packages/framework-cmsis/CMSIS/Include",
-                "C:/Users/david/.platformio/packages/framework-cmsis-stm32f0/Include",
-                ""
-            ],
-            "browse": {
-                "limitSymbolsToIncludedHeaders": true,
-                "path": [
-                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/src",
-                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/lib",
-                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/include",
-                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
-                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
-                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
-                    "C:/Users/david/.platformio/packages/framework-cmsis/CMSIS/Include",
-                    "C:/Users/david/.platformio/packages/framework-cmsis-stm32f0/Include",
-                    ""
-                ]
-            },
-            "defines": [
-                "PLATFORMIO=60116",
-                "STM32F0",
-                "STM32F091xC",
-                "STM32F091xC",
-                "F_CPU=48000000L",
-                ""
-            ],
-            "compilerPath": "C:/Users/david/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
-            "compilerArgs": [
-                "-mthumb",
-                "-mcpu=cortex-m0",
-                ""
-            ]
-        }
-    ],
-    "version": 4
+  "configurations": [
+    {
+      "name": "windows-gcc-x64",
+      "includePath": [
+        "${workspaceFolder}/**"
+      ],
+      "browse": {
+        "limitSymbolsToIncludedHeaders": true,
+        "path": [
+          "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/src",
+          "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/lib",
+          "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/include",
+          "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
+          "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
+          "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
+          "C:/Users/User/.platformio/packages/framework-cmsis/CMSIS/Include",
+          "C:/Users/User/.platformio/packages/framework-cmsis-stm32f0/Include",
+          ""
+        ]
+      },
+      "defines": [
+        "PLATFORMIO=60116",
+        "STM32F0",
+        "STM32F091xC",
+        "STM32F091xC",
+        "F_CPU=48000000L",
+        ""
+      ],
+      "compilerPath": "gcc",
+      "compilerArgs": [
+        "-mthumb",
+        "-mcpu=cortex-m0",
+        ""
+      ],
+      "cStandard": "${default}",
+      "cppStandard": "${default}",
+      "intelliSenseMode": "windows-gcc-x64"
+    }
+  ],
+  "version": 4
 }

@@ -59,11 +59,15 @@ uint32_t GetTick(void) {
 }
 
 // Function Prototypes
+void setup_bb(void);
+void init_usart5(void);
+void initc(void);
+void initb(void);
 void LED_Matrix_Init(void);
+void LED_Matrix_Update(void);
 void sendBit(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
 void updateMatrix(uint8_t *framebuffer, size_t size);
-void LED_Matrix_Update(void);
 void initButton(void);
 int isButtonPressed(void);
 void checkButtonHit(uint8_t notePosition);
@@ -80,23 +84,26 @@ uint16_t I2C_EEPROM_Read_HighScore(void);
 void I2C_EEPROM_Write_HighScore(uint16_t score);
 void Display_High_Score(void);
 
+
 // Main Function
 int main(void) {
     SystemInit();                    // CMSIS System Initialization
-    SysTick_Config(SystemCoreClock / 1000);
-    init_usart5();                  // Initialize USART1 for printf
+    SysTick_Config(SystemCoreClock / 1000);  // 1ms Systick for timing
+
+    setup_bb();  // Setup GPIO pins for bit-bang SPI
+
+    // Initialize other peripherals
+    init_usart5();  // Initialize USART5 for printf
     initc();
     initb();
-    
-    // I2C_Init();                      // Initialize I2C for OLED and EEPROM
-    
-    // LED_Matrix_Init();               // Initialize RGB LED Matrix
-    // DAC_Audio_Init();                // Initialize DAC for sound playback
+    DAC_Audio_Init();  // Initialize DAC
+    I2C_Init();  // Initialize I2C for EEPROM/OLED
+    LED_Matrix_Init();  // Initialize the GPIO for matrix (if needed)
 
-    // high_score = I2C_EEPROM_Read_HighScore();  // Retrieve saved high score
-
+    // Main loop
     while (1) {
-        LED_Matrix_Update();                 // Update falling notes
+        // Bit-banging LED matrix update
+        LED_Matrix_Update();             // Update falling notes
         // uint32_t current_time = SysTick->VAL;  // Get current time in ms
         // Detect_Note_Hit(current_time);       // Check for user input and hits
         // Play_Audio_Track();                  // Play background music
@@ -121,6 +128,21 @@ int main(void) {
     // Configure system clock based on STM32 model
 //}
 
+// Setup GPIO for Bit-Banging
+void setup_bb(void) {
+    // Enable clock for GPIOB
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+
+    // Configure GPIO pins as outputs for LED matrix control
+    GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
+                    GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
+                    GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
+                    GPIO_MODER_MODER12_0);
+
+    // Set high speed for GPIO pins
+    GPIOB->OSPEEDR |= 0xFFFFFFFF;
+}
+
 void initc(void) {
     // Only enable port C for the keypad
     RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
@@ -139,7 +161,7 @@ void initb() {
                     | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0
                     | GPIO_MODER_MODER12_0);
 
-    GPIOB->ODR = 0x00000084;
+   // GPIOB->ODR = 0x00000084;
 
 }
 
@@ -254,20 +276,21 @@ void USART3_8_IRQHandler(void) {
 
 
 // Initialize RGB LED Matrix
-// void LED_Matrix_Init(void) {
-//     // Enable clock for GPIOB
-//     RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+ void LED_Matrix_Init(void) {
+     // Enable clock for GPIOB
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 
-//     // Configure bit banging pins as outputs
-//     GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
-//                     GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
-//                     GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
-//                     GPIO_MODER_MODER12_0);
+    // Configure bit banging pins as outputs
+    GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
+                    GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
+                    GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
+                    GPIO_MODER_MODER12_0);
 
-//     // Set high speed
-//     GPIOB->OSPEEDR |= 0xFFFFFFFF;
-// }
+    // Set high speed
+    GPIOB->OSPEEDR |= 0xFFFFFFFF;
+}
 
+// Send bit to LED matrix
 // Send bit to LED matrix
 void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
     if (red) {
@@ -288,6 +311,7 @@ void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
         GPIOB->BRR = B1_PIN | B2_PIN;
     }
     GPIOA->BSRR = CLK_PIN;  // Set CLK high
+    nano_wait(1000);
     GPIOA->BRR = CLK_PIN;   // Set CLK low
 }
 
@@ -312,24 +336,39 @@ void updateMatrix(uint8_t *framebuffer, size_t size) {
     GPIOA->BRR = OE_PIN;   // Enable the display (OE low)
 }
 
-// Rest of the code remains the same as it was provided above
-
-/// Update LED Matrix to display falling notes
+// Update LED Matrix to display falling notes
 void LED_Matrix_Update(void) {
+    static uint8_t current_row = 0;
+
+    GPIOA->BSRR = OE_PIN; // Disable all LEDs
+    GPIOA->BRR = LAT_PIN | CLK_PIN; // Ensure LAT and CLK are low
+
+    // Update each row of the matrix
+    for (uint8_t col = 0; col < LED_MATRIX_WIDTH; col++) {
+        uint8_t red = (note_positions[col] & 0x01) ? 1 : 0;
+        uint8_t green = (note_positions[col] & 0x02) ? 1 : 0;
+        uint8_t blue = (note_positions[col] & 0x04) ? 1 : 0;
+        sendBit(red, green, blue);
+    }
+
+    latchData();
+
+    // Set row selection lines
+    GPIOB->BSRR = ((current_row & 0x01) ? A_PIN : 0) | ((current_row & 0x02) ? B_PIN : 0) | ((current_row & 0x04) ? C_PIN : 0);
+
+    GPIOA->BRR = OE_PIN; // Re-enable LEDs
+
+    // Increment row
+    current_row = (current_row + 1) % (LED_MATRIX_HEIGHT / 2);
+    // Move falling notes
     for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
-        note_positions[i] += NOTE_DROP_SPEED;  // Move notes down
-
-        // Assign timing for note drop (example timing logic)
-        if (note_positions[i] == 0) {
-            note_timing[i] = SysTick->VAL + 1000; // Expect note to hit bottom in 1 second
-        }
-
-        // Reset note if it falls off the bottom
+        note_positions[i] += NOTE_DROP_SPEED;
         if (note_positions[i] >= LED_MATRIX_HEIGHT) {
             note_positions[i] = 0;
         }
     }
-}
+}  
+
 
 
 /* int __io_putchar(int ch) {
