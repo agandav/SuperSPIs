@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "whitestripes.h"
 #include <stdlib.h> // for abs()
+#include "tty.h"
 
 // Definitions for game parameters and hardware setup
 #define LED_MATRIX_WIDTH 64
@@ -19,14 +20,14 @@
 #define MAX_MISSES 5                     // Maximum number of missed notes allowed
 
 // Pin definitions for RGB LED matrix
-#define A1_PIN (1 << 7)
-#define A2_PIN (1 << 5)
-#define A3_PIN (1 << 3)
-#define A4_PIN (1 << 1)
-#define B1_PIN (1 << 0)
-#define B2_PIN (1 << 2)
-#define B3_PIN (1 << 4)
-#define B4_PIN (1 << 6)
+#define B2_PIN (1 << 7)
+#define R2_PIN (1 << 5)
+#define B1_PIN (1 << 3)
+#define R1_PIN (1 << 1)
+#define G1_PIN (1 << 0)
+#define G2_PIN (1 << 2)
+#define B_PIN (1 << 4)
+#define D_PIN (1 << 6)
 #define OE_PIN (1 << 8)
 #define CLK_PIN (1 << 9)
 #define C_PIN (1 << 10)
@@ -83,30 +84,34 @@ void Display_High_Score(void);
 int main(void) {
     SystemInit();                    // CMSIS System Initialization
     SysTick_Config(SystemCoreClock / 1000);
-    USART1_Init();                   // Initialize USART1 for printf
-    I2C_Init();                      // Initialize I2C for OLED and EEPROM
-    LED_Matrix_Init();               // Initialize RGB LED Matrix
-    DAC_Audio_Init();                // Initialize DAC for sound playback
+    init_usart5();                  // Initialize USART1 for printf
+    initc();
+    initb();
+    
+    // I2C_Init();                      // Initialize I2C for OLED and EEPROM
+    
+    // LED_Matrix_Init();               // Initialize RGB LED Matrix
+    // DAC_Audio_Init();                // Initialize DAC for sound playback
 
-    high_score = I2C_EEPROM_Read_HighScore();  // Retrieve saved high score
+    // high_score = I2C_EEPROM_Read_HighScore();  // Retrieve saved high score
 
     while (1) {
         LED_Matrix_Update();                 // Update falling notes
-        uint32_t current_time = SysTick->VAL;  // Get current time in ms
-        Detect_Note_Hit(current_time);       // Check for user input and hits
-        Play_Audio_Track();                  // Play background music
+        // uint32_t current_time = SysTick->VAL;  // Get current time in ms
+        // Detect_Note_Hit(current_time);       // Check for user input and hits
+        // Play_Audio_Track();                  // Play background music
 
         // Display current score on OLED
-        OLED_Display_Score_DMA(score);
+        // OLED_Display_Score_DMA(score);
 
-        if (Game_Over()) {
-            if (score > high_score) {
-                I2C_EEPROM_Write_HighScore(score);  // Update high score in EEPROM
-                high_score = score;
-            }
-            Display_High_Score();  // Show high score on OLED
-            Game_Reset();          // Restart the game
-        }
+        // if (Game_Over()) {
+        //     if (score > high_score) {
+        //         I2C_EEPROM_Write_HighScore(score);  // Update high score in EEPROM
+        //         high_score = score;
+        //     }
+        //     Display_High_Score();  // Show high score on OLED
+        //     Game_Reset();          // Restart the game
+        // }
     }
 }
 
@@ -116,69 +121,171 @@ int main(void) {
     // Configure system clock based on STM32 model
 //}
 
-int __io_putchar(int ch) {
-    // Assuming you are using USART1, implement the necessary UART transmit function
-    while (!(USART1->ISR & USART_ISR_TXE));  // Wait until the transmit data register is empty
-    USART1->TDR = (uint8_t) ch;              // Transmit character
+void initc(void) {
+    // Only enable port C for the keypad
+    RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+    GPIOC->MODER &= 0xfffffff0;
+    GPIOC->PUPDR &= 0xfffffff0;
+}
 
+void initb() {
+  RCC->AHBENR |=RCC_AHBENR_GPIOBEN;
+
+  // Set pins PB0-PB4 as outputs
+  GPIOB->MODER &= 0x00000000;
+
+  GPIOB->MODER |= (GPIO_MODER_MODER0_0 | GPIO_MODER_MODER1_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER3_0
+                    |GPIO_MODER_MODER4_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER6_0 | GPIO_MODER_MODER7_0
+                    | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0
+                    | GPIO_MODER_MODER12_0);
+
+    GPIOB->ODR = 0x00000084;
+
+}
+
+
+
+
+void init_usart5() {
+    RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+    RCC->AHBENR |= RCC_AHBENR_GPIODEN;
+    // PC12 to be routed to USART5_TX
+    GPIOC->MODER |= GPIO_MODER_MODER12_1;
+    GPIOC->MODER &= ~GPIO_MODER_MODER12_0;
+    // PD2 to be routed to USART5_RX
+    GPIOD->MODER |= GPIO_MODER_MODER2_1;
+    GPIOD->MODER &= ~GPIO_MODER_MODER2_0;
+    
+    //AFR bits
+    GPIOC->AFR[1] |= 0x00020000;
+    GPIOD->AFR[0] |= 0x00000200;
+
+    // Activate RCC of USART5
+    RCC->APB1ENR |= RCC_APB1ENR_USART5EN;
+
+    // Disable USART
+    USART5->CR1 &= ~USART_CR1_UE;
+    // USART5 set to 8 bits
+    USART5->CR1 &= ~USART_CR1_M0;
+    USART5->CR1 &= ~USART_CR1_M1;
+    // One stop bit
+    USART5->CR2 &= ~USART_CR2_STOP_0;
+    USART5->CR2 &= ~USART_CR2_STOP_1;
+    //No parity Control
+    USART5->CR1 &= ~USART_CR1_PCE;
+    // X16 Oversampling
+    USART5->CR1 &= ~USART_CR1_OVER8;
+    // Baud rate to 115200
+    USART5->BRR = 0x1A1;
+    // Enable RE and TE
+    USART5->CR1 |= USART_CR1_TE;
+    USART5->CR1 |= USART_CR1_RE;
+    // Enable the USART
+    USART5->CR1 |= USART_CR1_UE;
+}
+
+#define FIFOSIZE 16
+char serfifo[FIFOSIZE];
+int seroffset = 0;
+
+void enable_tty_interrupt(void) {
+    USART5->CR1 |= USART_CR1_RXNEIE;
+    USART5->CR3 |= USART_CR3_DMAR;
+    NVIC->ISER[0] |= (1<<29); 
+
+    RCC->AHBENR |= RCC_AHBENR_DMA2EN;
+    DMA2->CSELR |= DMA2_CSELR_CH2_USART5_RX;
+    DMA2_Channel2->CCR &= ~DMA_CCR_EN;  // First make sure DMA is turned off
+
+    DMA2_Channel2->CMAR = (uint32_t)&serfifo; //Sending address
+    DMA2_Channel2->CPAR = (uint32_t)&(USART5->RDR); //Receiving adress
+    DMA2_Channel2->CNDTR = FIFOSIZE; //Number of data to be transferred (CDNTR)
+    DMA2_Channel2->CCR &= ~DMA_CCR_DIR; //Direction (DIR) READ FROM PERIPHERAL
+    DMA2_Channel2->CCR &= ~DMA_CCR_MSIZE; //Memory Size (MSIZE) and Peripheral Size (PSIZE)
+    DMA2_Channel2->CCR &= ~DMA_CCR_PSIZE; //Peripheral Size (PSIZE)
+    DMA2_Channel2->CCR &= ~DMA_CCR_HTIE; //Half Completion Disabled (HTIE)
+    DMA2_Channel2->CCR &= ~DMA_CCR_TCIE; //Total Completion Disabled (TCIE)
+    DMA2_Channel2->CCR |= DMA_CCR_MINC; //Memory Increment (MINC)
+    DMA2_Channel2->CCR &= ~DMA_CCR_PINC; //Memory Increment (MINC)
+    DMA2_Channel2->CCR |= DMA_CCR_CIRC; //Circular operation (CIRC)
+    DMA2_Channel2->CCR &= ~DMA_CCR_MEM2MEM; //Memory to memory disabled (MINC)
+    NVIC_SetPriority(USART3_8_IRQn, 0);
+
+    DMA2_Channel2->CCR |= DMA_CCR_EN; //Enable DMA2
+
+}
+
+// Works like line_buffer_getchar(), but does not check or clear ORE nor wait on new characters in USART
+char interrupt_getchar() {
+    USART_TypeDef *u = USART5;
+    // Wait for a newline to complete the buffer.
+    while(fifo_newline(&input_fifo) == 0) {
+        asm volatile ("wfi"); // wait for an interrupt
+        // insert_echo_char(u->RDR);
+    }
+    
+    // Return a character from the line buffer.
+    char ch = fifo_remove(&input_fifo);
     return ch;
 }
-void USART1_Init(void) {
-    // Enable clock for USART1
-    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
 
-    // Set baud rate, assuming 48 MHz clock and 9600 baud rate
-    USART1->BRR = 5000;
+int __io_putchar(int c) {
+     if(c=='\n'){
+    while(!(USART5->ISR & USART_ISR_TXE));
+    USART5->TDR = '\r';
+    }
 
-    // Enable USART1, transmitter, and receiver
-    USART1->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
-
-    // Configure GPIO pins for USART1 TX and RX if not already configured
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;      // Enable GPIOA clock
-
-    // Set PA9 (TX) as Alternate Function
-    GPIOA->MODER &= ~GPIO_MODER_MODER9_Msk;
-    GPIOA->MODER |= GPIO_MODER_MODER9_1;    // Alternate function mode
-
-    // Set PA9 to AF1 (USART1_TX)
-    GPIOA->AFR[1] |= (1 << (1 * 4));
+    while(!(USART5->ISR & USART_ISR_TXE));
+    USART5->TDR = c;
+    return c;
 }
 
+int __io_getchar(void) {
+    return interrupt_getchar();
+}
+
+void USART3_8_IRQHandler(void) {
+    while(DMA2_Channel2->CNDTR != sizeof serfifo - seroffset) {
+        if (!fifo_full(&input_fifo))
+            insert_echo_char(serfifo[seroffset]);
+        seroffset = (seroffset + 1) % sizeof serfifo;
+    }
+}
 
 
 // Initialize RGB LED Matrix
-void LED_Matrix_Init(void) {
-    // Enable clock for GPIOB
-    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+// void LED_Matrix_Init(void) {
+//     // Enable clock for GPIOB
+//     RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 
-    // Configure bit banging pins as outputs
-    GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
-                    GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
-                    GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
-                    GPIO_MODER_MODER12_0);
+//     // Configure bit banging pins as outputs
+//     GPIOB->MODER |= (GPIO_MODER_MODER7_0 | GPIO_MODER_MODER5_0 | GPIO_MODER_MODER3_0 | GPIO_MODER_MODER1_0 |
+//                     GPIO_MODER_MODER0_0 | GPIO_MODER_MODER2_0 | GPIO_MODER_MODER4_0 | GPIO_MODER_MODER6_0 |
+//                     GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0 |
+//                     GPIO_MODER_MODER12_0);
 
-    // Set high speed
-    GPIOB->OSPEEDR |= 0xFFFFFFFF;
-}
+//     // Set high speed
+//     GPIOB->OSPEEDR |= 0xFFFFFFFF;
+// }
 
 // Send bit to LED matrix
 void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
     if (red) {
-        GPIOB->BSRR = A2_PIN | B2_PIN;
+        GPIOB->BSRR = R1_PIN | R2_PIN ;
     } else {
-        GPIOB->BRR = A2_PIN | B2_PIN;
+        GPIOB->BRR = R1_PIN | R2_PIN;
     }
 
     if (green) {
-        GPIOB->BSRR = B1_PIN;
+        GPIOB->BSRR = G1_PIN | G2_PIN;
     } else {
-        GPIOB->BRR = B1_PIN;
+        GPIOB->BRR = G1_PIN | G2_PIN;
     }
 
     if (blue) {
-        GPIOB->BSRR = A3_PIN | B3_PIN;
+        GPIOB->BSRR = B1_PIN | B2_PIN;
     } else {
-        GPIOB->BRR = A3_PIN | B3_PIN;
+        GPIOB->BRR = B1_PIN | B2_PIN;
     }
     GPIOA->BSRR = CLK_PIN;  // Set CLK high
     GPIOA->BRR = CLK_PIN;   // Set CLK low
