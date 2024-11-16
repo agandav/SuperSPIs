@@ -1,17 +1,10 @@
-#include "stm32f0xx.h"
-#include <stdio.h>//"i2c.h"
+#include "stm32f0xx.h"    // CMSIS header for STM32F0 (which should be part of CMSIS)
+#include "core_cm0.h"     // CMSIS Core header for ARM Cortex-M0
+#include "stdio.h"
 #include <math.h>   // for M_PI
 #include <stdint.h>
 #include "whitestripes.h"
 #include <stdlib.h> // for abs()
-#include "stm32f0xx_hal.h"
-
-
-
-//#include "gpio.h"
-//#include "tim.h"
-// #include "dac.h"
-// #include "dma.h"
 
 // Definitions for game parameters and hardware setup
 #define LED_MATRIX_WIDTH 64
@@ -26,14 +19,13 @@
 #define MAX_MISSES 5                     // Maximum number of missed notes allowed
 
 // Pin definitions for RGB LED matrix
-// Bit Banging Bus Pins
 #define A1_PIN (1 << 7)
-#define A2_PIN (1 << 5) 
+#define A2_PIN (1 << 5)
 #define A3_PIN (1 << 3)
 #define A4_PIN (1 << 1)
 #define B1_PIN (1 << 0)
 #define B2_PIN (1 << 2)
-#define B3_PIN (1 << 4) 
+#define B3_PIN (1 << 4)
 #define B4_PIN (1 << 6)
 #define OE_PIN (1 << 8)
 #define CLK_PIN (1 << 9)
@@ -43,7 +35,6 @@
 #define BUTTON_PIN (1 << 4)
 #define BUTTON_PORT GPIOB
 #define BIT_BANGING_PORT GPIOB
-#define TARGET_POSITION 0 // Replace with the desired target position for the note
 
 // Game variables
 volatile uint16_t score = 0;
@@ -54,10 +45,19 @@ uint8_t audio_data_buffer[128];                     // Buffer for audio data
 uint8_t current_note_index = 0;                     // Tracks the index of the current note
 uint32_t note_timing[LED_MATRIX_WIDTH];             // Array to track expected timing for each note
 volatile uint8_t missed_notes = 0;
+volatile uint32_t msTicks = 0;                      // Millisecond tick counter
 
+// SysTick Handler to increment msTicks
+void SysTick_Handler(void) {
+    msTicks++;
+}
+
+// Function to get current tick count in ms
+uint32_t GetTick(void) {
+    return msTicks;
+}
 
 // Function Prototypes
-//void SystemClock_Config(void);
 void LED_Matrix_Init(void);
 void sendBit(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
@@ -81,21 +81,21 @@ void Display_High_Score(void);
 
 // Main Function
 int main(void) {
-    HAL_Init();                      // Initialize the HAL library
-    //internal_clock();//SystemClock_Config();            // Configure system clock
+    SystemInit();                    // CMSIS System Initialization
+    SysTick_Config(SystemCoreClock / 1000);
+    USART1_Init();                   // Initialize USART1 for printf
     I2C_Init();                      // Initialize I2C for OLED and EEPROM
     LED_Matrix_Init();               // Initialize RGB LED Matrix
-    //Button_Input_Init();             // Initialize GPIO buttons
     DAC_Audio_Init();                // Initialize DAC for sound playback
 
     high_score = I2C_EEPROM_Read_HighScore();  // Retrieve saved high score
 
     while (1) {
         LED_Matrix_Update();                 // Update falling notes
-        uint32_t current_time = HAL_GetTick();  // Get current time in ms
+        uint32_t current_time = SysTick->VAL;  // Get current time in ms
         Detect_Note_Hit(current_time);       // Check for user input and hits
         Play_Audio_Track();                  // Play background music
-        
+
         // Display current score on OLED
         OLED_Display_Score_DMA(score);
 
@@ -110,10 +110,41 @@ int main(void) {
     }
 }
 
+
 // System Clock Configuration
 //void SystemClock_Config(void) {
     // Configure system clock based on STM32 model
 //}
+
+int __io_putchar(int ch) {
+    // Assuming you are using USART1, implement the necessary UART transmit function
+    while (!(USART1->ISR & USART_ISR_TXE));  // Wait until the transmit data register is empty
+    USART1->TDR = (uint8_t) ch;              // Transmit character
+
+    return ch;
+}
+void USART1_Init(void) {
+    // Enable clock for USART1
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+
+    // Set baud rate, assuming 48 MHz clock and 9600 baud rate
+    USART1->BRR = 5000;
+
+    // Enable USART1, transmitter, and receiver
+    USART1->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
+
+    // Configure GPIO pins for USART1 TX and RX if not already configured
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;      // Enable GPIOA clock
+
+    // Set PA9 (TX) as Alternate Function
+    GPIOA->MODER &= ~GPIO_MODER_MODER9_Msk;
+    GPIOA->MODER |= GPIO_MODER_MODER9_1;    // Alternate function mode
+
+    // Set PA9 to AF1 (USART1_TX)
+    GPIOA->AFR[1] |= (1 << (1 * 4));
+}
+
+
 
 // Initialize RGB LED Matrix
 void LED_Matrix_Init(void) {
@@ -130,8 +161,8 @@ void LED_Matrix_Init(void) {
     GPIOB->OSPEEDR |= 0xFFFFFFFF;
 }
 
+// Send bit to LED matrix
 void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
-    // Write data lines based on RGB values
     if (red) {
         GPIOB->BSRR = A2_PIN | B2_PIN;
     } else {
@@ -149,20 +180,19 @@ void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
     } else {
         GPIOB->BRR = A3_PIN | B3_PIN;
     }
-    // Pulse the clock
     GPIOA->BSRR = CLK_PIN;  // Set CLK high
     GPIOA->BRR = CLK_PIN;   // Set CLK low
 }
 
+// Pulse the latch line
 void latchData(void) {
-    // Pulse the latch line
     GPIOA->BSRR = LAT_PIN; // Set LAT high
     GPIOA->BRR = LAT_PIN;  // Set LAT low
 }
 
+// Update matrix
 void updateMatrix(uint8_t *framebuffer, size_t size) {
-    // Disable the display during update (OE high)
-    GPIOA->BSRR = OE_PIN;
+    GPIOA->BSRR = OE_PIN; // Disable the display during update (OE high)
 
     for (size_t i = 0; i < size; i++) {
         uint8_t red = framebuffer[i] & 0xFF;
@@ -171,21 +201,20 @@ void updateMatrix(uint8_t *framebuffer, size_t size) {
         sendBit(red, green, blue);
     }
 
-    // Latch the data to the matrix
-    latchData();
-
-    // Enable the display (OE low)
-    GPIOA->BRR = OE_PIN;
+    latchData(); // Latch the data to the matrix
+    GPIOA->BRR = OE_PIN;   // Enable the display (OE low)
 }
 
-// Update LED Matrix to display falling notes
+// Rest of the code remains the same as it was provided above
+
+/// Update LED Matrix to display falling notes
 void LED_Matrix_Update(void) {
     for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
         note_positions[i] += NOTE_DROP_SPEED;  // Move notes down
 
         // Assign timing for note drop (example timing logic)
         if (note_positions[i] == 0) {
-            note_timing[i] = HAL_GetTick() + 1000; // Expect note to hit bottom in 1 second
+            note_timing[i] = SysTick->VAL + 1000; // Expect note to hit bottom in 1 second
         }
 
         // Reset note if it falls off the bottom
@@ -194,6 +223,7 @@ void LED_Matrix_Update(void) {
         }
     }
 }
+
 
 /* int __io_putchar(int ch) {
     // Implement this based on your UART configuration, for example:
@@ -211,6 +241,7 @@ void initButton(void) {
     GPIOB->PUPDR |= GPIO_PUPDR_PUPDR4_0;   // Pull-up
 }
 
+
 int isButtonPressed(void) {
     // Check if button is pressed (active low)
     return !(GPIOB->IDR & BUTTON_PIN); // Returns 1 if pressed
@@ -218,7 +249,7 @@ int isButtonPressed(void) {
 
 void checkButtonHit(uint8_t notePosition) {
     static uint32_t lastPressTime = 0;
-    uint32_t currentTime = HAL_GetTick(); // Get current system time in ms
+    uint32_t currentTime = SysTick->VAL; // Get current system time in ms
 
     if (isButtonPressed()) {
         // Debounce button: Ensure at least 200ms between presses
@@ -233,6 +264,7 @@ void checkButtonHit(uint8_t notePosition) {
         }
     }
 }
+
 
 // Initialize DAC for Audio Playback
 void DAC_Audio_Init(void) {
@@ -270,6 +302,7 @@ void OLED_Display_Score_DMA(uint16_t score) {
 }
 // page 205 & 943
 
+
 // Start receiving audio data from EEPROM using DMA
 void Start_Audio_DMA(void) {
     I2C2->CR2 = I2C_CR2_RD_WRN | (sizeof(audio_data_buffer) << 16) | (EEPROM_AUDIO_ADDRESS << 1) | I2C_CR2_AUTOEND;
@@ -281,14 +314,16 @@ void Start_Audio_DMA(void) {
     DMA1_Channel3->CCR |= DMA_CCR_EN;
 }
 
-// Play audio track from received data buffer using DAC
+/// Play audio track from received data buffer using DAC
 void Play_Audio_Track(void) {
-    for (unsigned int i = 0; i < whitestripes_audio_data_len; i++) {
-        while (!(TIM2->SR & TIM_SR_UIF));  // Wait for timer overflow
+    // Add a correct length for whitestripes_audio_data_len if it's not already defined
+    for (unsigned int i = 0; i < whitestripes_audio_data_len && i < sizeof(whitestripes_audio_data); i++) {
+        while (!(TIM2->SR & TIM_SR_UIF)); // Wait for timer overflow
         TIM2->SR &= ~TIM_SR_UIF;           // Clear update interrupt flag
         DAC->DHR8R1 = whitestripes_audio_data[i];  // Set DAC output to current sample value
     }
 }
+
 
 // Detect Button Press to Check for Note Hits with Timing-Based Scoring
 void Detect_Note_Hit(uint32_t current_time) {
@@ -315,6 +350,7 @@ void Detect_Note_Hit(uint32_t current_time) {
     }
 }
 
+
 // Check if game is over (e.g., time limit or max misses)
 int Game_Over(void) {
     printf("Game over, you lose!");
@@ -329,6 +365,7 @@ void Game_Reset(void) {
         note_timing[i] = 0;
     }
 }
+
 
 // Read High Score from EEPROM
 uint16_t I2C_EEPROM_Read_HighScore(void) {
@@ -359,7 +396,9 @@ void I2C_EEPROM_Write_HighScore(uint16_t score) {
 */
 // Check if game is over
 
+
 // Display high score
 void Display_High_Score(void) {
     printf("High Score: %d\n", high_score);  // Replace with OLED update logic
 }
+
