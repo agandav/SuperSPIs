@@ -16,10 +16,10 @@
 #define EEPROM_AUDIO_ADDRESS 0x50        // EEPROM address for audio samples
 #define EEPROM_HIGH_SCORE_ADDRESS 0x52   // EEPROM address for high score
 #define I2C_TIMING 0x00B01A4B            // Timing for 400kHz with 48MHz clock
-#define TIMING_WINDOW 5                  // Timing window (in ms) for scoring
+#define TIMING_WINDOW 10                  // Timing window (in ms) for scoring
 #define TARGET_POSITION 0                // Replace with desired target position for the note
 #define MAX_MISSES 5                     // Maximum number of missed notes allowed
-
+#define M_PI 3.1415
 // Pin definitions for RGB LED matrix
 #define B2_PIN (1 << 7)
 #define R2_PIN (1 << 5)
@@ -53,13 +53,6 @@ uint8_t blockColors[4] = {1, 2, 4, 7};
 
 // Game variables
 int score = 0;
-volatile uint16_t high_score = 0;
-volatile uint8_t note_positions[LED_MATRIX_WIDTH];  // Array to track note positions
-uint8_t oled_data_buffer[16];                       // Buffer for OLED display data
-uint8_t audio_data_buffer[128];                     // Buffer for audio data
-uint8_t current_note_index = 0;                     // Tracks the index of the current note
-uint32_t note_timing[LED_MATRIX_WIDTH];             // Array to track expected timing for each note
-volatile uint8_t missed_notes = 0;
 volatile uint32_t msTicks = 0;                      // Millisecond tick counter
 
 //===========================================================================
@@ -291,7 +284,7 @@ void setup_tim14() {
 void setup_tim7() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM7EN;
     TIM7->PSC = 4800-1;
-    TIM7->ARR = 50-1;
+    TIM7->ARR = 500-1;
     TIM7->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<18);
     TIM7->CR1 |= TIM_CR1_CEN;
@@ -464,31 +457,63 @@ void init_exti() {
   NVIC->ISER[0] |= (1<<6);
   NVIC->ISER[0] |= (1<<7);
 }
+int missed_notes;
 
 void EXTI0_1_IRQHandler(){
     EXTI->PR = EXTI_PR_PR0;
-    score = score + 20;
+
+    if (block_position >= 55 && color_index==0){
+        score = score + 50;
+        printf("Hit!");
+    } else{
+        missed_notes++;
+        printf("Missed!");    
+    }
+    
     togglexn(GPIOC, 6);
 }
 
 void EXTI2_3_IRQHandler(){
     if (EXTI->PR & EXTI_PR_PR2) {
         togglexn(GPIOC, 7);      // Toggle pin PC7
-        score = score + 30;
+
+    if (block_position >= 55 && color_index==1){
+        score = score + 50;
+        printf("Hit!");    
+    } else{
+        missed_notes++;
+        printf("Missed!");    
+    }
+
         EXTI->PR = EXTI_PR_PR2;  // Clear the interrupt pending flag for EXTI line 2
     }
 
     // Check if the interrupt was triggered by EXTI line 3
     if (EXTI->PR & EXTI_PR_PR3) {
         togglexn(GPIOC, 8); // Toggle pin PC8
-        score = score + 40;     
+        if (block_position >= 55 && color_index==2){
+            score = score + 50;
+            printf("Hit!");    
+        } else{
+            missed_notes++;
+            printf("Missed!");    
+        }
+        
         EXTI->PR = EXTI_PR_PR3;  // Clear the interrupt pending flag for EXTI line 3
     }
 }
 
 void EXTI4_15_IRQHandler(){
     EXTI->PR = EXTI_PR_PR4;
-    score = score + 50;      
+
+    if (block_position >= 55 && color_index==3){
+                score = score + 50;
+                printf("Hit!");    
+            } else{
+                missed_notes++;
+                printf("Missed!");    
+            }
+            
     togglexn(GPIOC, 9);
 }
 
@@ -674,39 +699,6 @@ void latchData(void) {
     GPIOB->BSRR = LAT_PIN; // Set LAT high
     GPIOB->BRR = LAT_PIN;  // Set LAT low
 }
-
-// Update LED Matrix to display falling notes
-void LED_Matrix_Update(void) {
-    static uint8_t current_row = 0;
-
-    GPIOA->BSRR = OE_PIN; // Disable all LEDs
-    GPIOA->BRR = LAT_PIN | CLK_PIN; // Ensure LAT and CLK are low
-
-    // Update each row of the matrix
-    for (uint8_t col = 0; col < LED_MATRIX_WIDTH; col++) {
-        uint8_t red = (note_positions[col] & 0x01) ? 1 : 0;
-        uint8_t green = (note_positions[col] & 0x02) ? 1 : 0;
-        uint8_t blue = (note_positions[col] & 0x04) ? 1 : 0;
-        sendRGB1(red, green, blue);
-    }
-
-    latchData();
-
-    // Set row selection lines
-    GPIOB->BSRR = ((current_row & 0x01) ? A_PIN : 0) | ((current_row & 0x02) ? B_PIN : 0) | ((current_row & 0x04) ? C_PIN : 0);
-
-    GPIOA->BRR = OE_PIN; // Re-enable LEDs
-
-    // Increment row
-    current_row = (current_row + 1) % (LED_MATRIX_HEIGHT / 2);
-    // Move falling notes
-    for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
-        note_positions[i] += NOTE_DROP_SPEED;
-        if (note_positions[i] >= LED_MATRIX_HEIGHT) {
-            note_positions[i] = 0;
-        }
-    }
-}  
 
 //===========================================================================
 // SPI OLED Display
@@ -907,41 +899,30 @@ void init_tim6(void) {
 }
 
 
-void play_hit_sound(void) {
-    set_sound_frequency(880);  // Set a high frequency for hits
-    delay(100);                // Play the sound for 100 ms
-    stop_sound();              // Stop the sound after duration
-}
 
-void play_miss_sound(void) {
-    set_sound_frequency(440);  // Set a lower frequency for misses
-    delay(100);                // Play the sound for 100 ms
-    stop_sound();              // Stop the sound after duration
-}
-
-void Detect_Note_Hit(uint32_t current_time) {
-                  for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
-                  if (framebuffer[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
-                      if ((BUTTON_PORT->IDR & BUTTON_PIN) == 0) {  // Button pressed (active low)
-                          int timing_difference = abs((int)(current_time - note_timing[i]));
-                          if (timing_difference <= TIMING_WINDOW) {
-                              score += 10;  // Perfect hit
-                              play_hit_sound();  // Play hit sound
-                          } else if (timing_difference <= TIMING_WINDOW * 2) {
-                              score += 5;  // Good hit
-                              play_hit_sound();  // Play hit sound
-                          } else {
-                              score += 2;  // Okay hit
-                              play_hit_sound();  // Play hit sound
-                          }
-                      } else {
-                          play_miss_sound();   // Play miss sound
-                          missed_notes++;
-                      }
-                      framebuffer[i] = 0;    // Reset note position
-                  }
-              }
-}
+// void Detect_Note_Hit(uint32_t current_time) {
+//                   for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
+//                   if (framebuffer[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
+//                       if ((BUTTON_PORT->IDR & BUTTON_PIN) == 0) {  // Button pressed (active low)
+//                           int timing_difference = abs((int)(current_time - note_timing[i]));
+//                           if (timing_difference <= TIMING_WINDOW) {
+//                               score += 10;  // Perfect hit
+//                               play_hit_sound();  // Play hit sound
+//                           } else if (timing_difference <= TIMING_WINDOW * 2) {
+//                               score += 5;  // Good hit
+//                               play_hit_sound();  // Play hit sound
+//                           } else {
+//                               score += 2;  // Okay hit
+//                               play_hit_sound();  // Play hit sound
+//                           }
+//                       } else {
+//                           play_miss_sound();   // Play miss sound
+//                           missed_notes++;
+//                       }
+//                       framebuffer[i] = 0;    // Reset note position
+//                   }
+//               }
+// }
 
 
 
