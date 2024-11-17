@@ -40,12 +40,17 @@
 #define MATRIX_WIDTH 64
 #define MATRIX_HEIGHT 32
 #define FRAMEBUFFER_BYTES (MATRIX_WIDTH*MATRIX_HEIGHT/2)
-uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 B1 G1]
+uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 G1 B1]
 int row;
 int portc;
+int block_position;
+int color_index;
+// color 0 = black, 1 = blue, 2 = green, 3 = cyan, 4 = red, 5 = magenta, 6 = yellow, 7 = white
+uint8_t blockColors[4] = {1, 2, 4, 7};
+
 
 // Game variables
-uint8_t score = 10;
+int score = 0;
 volatile uint16_t high_score = 0;
 volatile uint8_t note_positions[LED_MATRIX_WIDTH];  // Array to track note positions
 uint8_t oled_data_buffer[16];                       // Buffer for OLED display data
@@ -131,42 +136,37 @@ void USER_input_init();
 
 // Main Function
 int main(void) {
+    internal_clock();
     SystemInit();                    // CMSIS System Initialization
     SysTick_Config(SystemCoreClock / 1000);  // 1ms Systick for timing
 
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
-    // I2C_Init();  // Initialize I2C for EEPROM/OLED
+    enable_tty_interrupt();
+    // These turn off buffering.
+    setbuf(stdin,0); 
+    setbuf(stdout,0);
+    setbuf(stderr,0);
 
-    //Initialize GPIO Matrix and TIM7 for switching rows
-    // #define LED_Matrix_Subsytem
-    #if defined(LED_Matrix_Subsytem)
-    LED_Matrix_init();
-    setup_tim7();
-    #endif
-    //User Input GPIO initialization
     #define USER_input_subsystem
+    #define SPI_subsystem
+    #define DAC_subsystem
+    #define LED_Matrix_subsystem
+    
+    //User Input GPIO initialization
     #if defined(USER_input_subsystem)
     USER_input_init();
     init_exti();
     #endif
     // OLED SPI initialization
-    #define SPI_subsystem
     #if defined(SPI_subsystem)
     init_spi1();
     spi1_init_oled();
     spi1_setup_dma();
     spi1_enable_dma();
-    setup_tim14();
-    #endif
-    //Setup ADC for Volume controller
-    // #define ADC_subsystem
-    #if defined(ADC_subsystem)
-    setup_adc();
     init_tim2();
     #endif
     //Setup DAC for music reproduction
-    // #define DAC_subsystem
     #if defined(DAC_subsystem)
     init_wavetable();
     // offset0=89142*12;
@@ -175,6 +175,14 @@ int main(void) {
     float f = 460.5;
     set_freq(0,f);
     #endif
+    //Initialize GPIO Matrix and TIM7 for switching rows
+    #if defined(LED_Matrix_subsystem)
+    clearFramebuffer();
+    LED_Matrix_init();
+    setup_tim3();
+    setup_tim7();
+    #endif
+
 
     // for(;;) {
     //     int portc = GPIOC->IDR;
@@ -216,19 +224,58 @@ void togglexn(GPIO_TypeDef *port, int n) {
 //-------------------------------
 // Timer 7 for Bit banging
 //-------------------------------
-
+// uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 G1 B1]
 void TIM7_IRQHandler(){
-  TIM7->SR &= ~TIM_SR_UIF;
-  row ++;
-  if (row>32) row = 0;
+    TIM7->SR &= ~TIM_SR_UIF; 
+    uint8_t*pRowData = &framebuffer[(row)*MATRIX_WIDTH];
     for(int i = 0; i<64; i++){
-        sendRGB1(0,1,1);
-        sendRGB2(0,0,1);
+        uint8_t pixelData = pRowData[i];
+        int r1 = (pixelData & 0x04) >> 2;
+        int g1 = (pixelData & 0x02) >> 1;
+        int b1 = (pixelData & 0x01);
+        
+        int r2 = (pixelData & 0x20) >> 5;
+        int g2 = (pixelData & 0x10) >> 4;
+        int b2 = (pixelData & 0x08) >> 3;
+        sendRGB1(r1,g1,b1);
+        sendRGB2(r2,g2,b2);
+        GPIOB->BSRR = CLK_PIN;  // Set CLK high
+        GPIOB->BRR = CLK_PIN;   // Set CLK low
     }    
+
     GPIOB->BSRR |= OE_PIN;
     changeRow(row);
+    row ++;
+    if (row > 16) {
+        row = 0;
+    }
     latchData();
     GPIOB->BRR |= OE_PIN;
+}
+
+void TIM3_IRQHandler(){
+    TIM3->SR &= ~TIM_SR_UIF;
+    // printf("tim3 interrupt");
+    clearFramebuffer();
+    setBlock(block_position, 0, 8, 32, blockColors[color_index]);
+    block_position++;
+    if(block_position>64){
+        block_position = 0;
+        color_index++;
+        if(color_index>4){
+            color_index = 0;
+        }
+    }
+}
+
+void setup_tim3() {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+    TIM3->PSC = 4800-1;
+    TIM3->ARR = 50-1;
+    TIM3->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1<<16);
+    TIM3->CR1 |= TIM_CR1_CEN;
+    block_position = 0;
 }
 
 
@@ -263,6 +310,111 @@ void changeRow(uint8_t row){
         GPIOB->BRR = D_PIN ;
     }
 
+}
+
+void initFramebufferForX() {
+    // Clear the framebuffer
+    for (int i = 0; i < FRAMEBUFFER_BYTES; i++) {
+        framebuffer[i] = 0;
+    }
+
+    // Draw an "X" in the middle
+    for (int row = 0; row < MATRIX_HEIGHT; row++) {
+        int col1 = row;               // Top-left to bottom-right diagonal
+        int col2 = MATRIX_WIDTH - 1 - row; // Top-right to bottom-left diagonal
+
+        // Calculate the byte and bit positions for the pixels
+        int byteIndex1 = (row * MATRIX_WIDTH + col1) / 2;
+        int byteIndex2 = (row * MATRIX_WIDTH + col2) / 2;
+
+        int isFirstPixel1 = (col1 % 2 == 0);
+        int isFirstPixel2 = (col2 % 2 == 0);
+
+        // Set R1, G1, B1 for col1 and col2 to 1 to make the pixel white
+        if (isFirstPixel1) {
+            framebuffer[byteIndex1] |= 0x07; // R1=1, G1=1, B1=1
+        } else {
+            framebuffer[byteIndex1] |= 0x70; // R2=1, G2=1, B2=1
+        }
+
+        if (isFirstPixel2) {
+            framebuffer[byteIndex2] |= 0x07; // R1=1, G1=1, B1=1
+        } else {
+            framebuffer[byteIndex2] |= 0x70; // R2=1, G2=1, B2=1
+        }
+    }
+}
+void setPixel(uint8_t x, uint8_t y, uint8_t color)
+{
+	if (x > MATRIX_WIDTH || y > MATRIX_HEIGHT)
+		return;
+
+	// color 0 = black, 1 = blue, 2 = green, 3 = cyan, 4 = red, 5 = magenta, 6 = yellow, 7 = white
+	if (y < MATRIX_HEIGHT/2)
+	{
+		// top half of matrix, color value is in bits 0-2
+		uint16_t addr = y*MATRIX_WIDTH + x;
+		framebuffer[addr] &= ~0x7;
+		framebuffer[addr] |= (color & 0x7);
+	}
+	else
+	{
+		// bottom half of matrix, color value is in bits 3-5
+		uint16_t addr = (y-MATRIX_HEIGHT/2)*MATRIX_WIDTH + x;
+		framebuffer[addr] &= ~0x38;
+		framebuffer[addr] |= ((color & 0x7) << 3);
+	}
+}
+
+
+void clearFramebuffer() {
+    // Clear the framebuffer
+    for (int i = 0; i < FRAMEBUFFER_BYTES; i++) {
+        framebuffer[i] = 0;
+    }
+}
+
+void setBlock(uint8_t startX, uint8_t startY, uint8_t width, uint8_t height, uint8_t color) {
+    // Ensure the block does not exceed the matrix boundaries
+    if (startX >= MATRIX_WIDTH || startY >= MATRIX_HEIGHT) {
+        return;
+    }
+
+    // Calculate the effective width and height to avoid overflow
+    uint8_t effectiveWidth = (startX + width > MATRIX_WIDTH) ? (MATRIX_WIDTH - startX) : width;
+    uint8_t effectiveHeight = (startY + height > MATRIX_HEIGHT) ? (MATRIX_HEIGHT - startY) : height;
+
+    // Loop through each pixel in the block
+    for (uint8_t y = startY; y < startY + effectiveHeight; y++) {
+        for (uint8_t x = startX; x < startX + effectiveWidth; x++) {
+            setPixel(x, y, color);
+        }
+    }
+}
+
+void setBlockColors() {
+    // Define the colors for each block
+    uint8_t blockColors[4] = {1, 2, 4, 7}; // Blue, Green, Red, White
+
+    for (int block = 0; block < 4; block++) {
+        // Calculate the starting and ending rows for the current block
+        uint8_t startRow = block * 8;
+        uint8_t endRow = startRow + 8;
+
+        // Set the pixels for the current block
+        for (uint8_t y = startRow; y < endRow; y++) {
+            for (uint8_t x = 0; x < 8; x++) { // Each block spans 8 columns (x = 0 to 7)
+                setPixel(x, y, blockColors[block]);
+            }
+        }
+    }
+}
+
+void RedFramebuffer() {
+    // Clear the framebuffer
+    for (int i = 0; i < FRAMEBUFFER_BYTES; i++) {
+        framebuffer[i] = 36;
+    }
 }
 
 void USER_input_init() {
@@ -320,7 +472,7 @@ void EXTI2_3_IRQHandler(){
     // Check if the interrupt was triggered by EXTI line 3
     if (EXTI->PR & EXTI_PR_PR3) {
         togglexn(GPIOC, 8); // Toggle pin PC8
-        score = score + 40;      
+        score = score + 40;     
         EXTI->PR = EXTI_PR_PR3;  // Clear the interrupt pending flag for EXTI line 3
     }
 }
@@ -350,6 +502,9 @@ void LED_Matrix_init() {
 }
 
 
+//===========================================================================
+// UART and Command Shell
+//===========================================================================
 void init_usart5() {
     RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
     RCC->AHBENR |= RCC_AHBENR_GPIODEN;
@@ -448,6 +603,7 @@ int __io_getchar(void) {
     return interrupt_getchar();
 }
 
+// TODO Copy the content for the USART5 ISR here
 void USART3_8_IRQHandler(void) {
     while(DMA2_Channel2->CNDTR != sizeof serfifo - seroffset) {
         if (!fifo_full(&input_fifo))
@@ -478,8 +634,8 @@ void sendRGB1(uint8_t red, uint8_t green, uint8_t blue) {
     } else {
         GPIOB->BRR = B1_PIN;
     }
-    GPIOB->BSRR = CLK_PIN;  // Set CLK high
-    GPIOB->BRR = CLK_PIN;   // Set CLK low
+    // GPIOB->BSRR = CLK_PIN;  // Set CLK high
+    // GPIOB->BRR = CLK_PIN;   // Set CLK low
 }
 
 void sendRGB2(uint8_t red, uint8_t green, uint8_t blue) {
@@ -500,8 +656,8 @@ void sendRGB2(uint8_t red, uint8_t green, uint8_t blue) {
     } else {
         GPIOB->BRR =  B2_PIN;
     }
-    GPIOB->BSRR = CLK_PIN;  // Set CLK high
-    GPIOB->BRR = CLK_PIN;   // Set CLK low
+    // GPIOB->BSRR = CLK_PIN;  // Set CLK high
+    // GPIOB->BRR = CLK_PIN;   // Set CLK low
 }
 
 // Pulse the latch line
@@ -616,71 +772,27 @@ void spi1_enable_dma(void) {
     DMA1_Channel3->CCR |= 0X00000001; // Enable channel
 }
 
-void updateScore(uint32_t score) {
+void updateScore(uint32_t internal_score) {
     // Indices for the score section in the display array
     const int scoreStartIndex = 9;
     const int scoreEndIndex = 13;
 
     // Ensure score fits within the range (5 digits max)
-    if (score > 99999) {
-        score = 99999; // Clamp the score to the maximum displayable value
+    if (internal_score > 99999) {
+        internal_score = 99999; // Clamp the score to the maximum displayable value
     }
 
     // Fill score digits into the display array
     for (int i = scoreEndIndex; i >= scoreStartIndex; i--) {
-        display[i] = 0x200 + ('0' + (score % 10)); // Extract the last digit and convert to display format
-        score /= 10;
+        display[i] = 0x200 + ('0' + (internal_score % 10)); // Extract the last digit and convert to display format
+        internal_score /= 10;
     }
 
     // Fill leading spaces if the score has fewer than 5 digits
-    for (int i = scoreStartIndex; i <= scoreEndIndex && score == 0; i++) {
+    for (int i = scoreStartIndex; i <= scoreEndIndex && internal_score == 0; i++) {
         if (display[i] == 0x200) {
             display[i] = 0x200 + ' ';
         }
-    }
-}
-
-//-------------------------------
-// Timer 14 ISR goes here
-//-------------------------------
-void TIM14_IRQHandler(){
-  TIM14->SR &= ~TIM_SR_UIF;
-  updateScore(score);
-//   score ++;
-}
-
-void setup_tim14() {
-    RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
-    TIM14->PSC = 12000-1;
-    TIM14->ARR = 1000-1;
-    TIM14->DIER |= TIM_DIER_UIE;
-    NVIC->ISER[0] |= (1<<19);
-    TIM14->CR1 |= TIM_CR1_CEN;
-}
-
-
-
-//=============================================================================
-// Analog-to-digital conversion for a volume level.
-//=============================================================================
-void setup_adc(void) {
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-    GPIOA->MODER |= 0x0000000C; //PA1 to analog mode
-
-    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN; //Clk enable
-    RCC->CR2 |= RCC_CR2_HSI14ON; //Clk turned on
-    while ((RCC->CR2 & RCC_CR2_HSI14RDY) == 0) {
-        //Wait for HSI14 oscillator to be ready
-    }
-    // ADC1->CFGR2 &= ~ADC_CFGR2_CKMODE; //Clk selection
-
-    ADC1->CR |= ADC_CR_ADEN; //ADC enable
-    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {
-    // Wait for the ADC to be ready    
-    }
-    ADC1->CHSELR |= 0x00000002; // Channel Selection
-    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {
-    // Wait for the ADC to be ready
     }
 }
 
@@ -689,22 +801,14 @@ void setup_adc(void) {
 //============================================================================
 void TIM2_IRQHandler(void){
     TIM2->SR &= ~TIM_SR_UIF;
-    ADC1->CR |= ADC_CR_ADSTART;
-    while ((ADC1->ISR & ADC_ISR_EOC) == 0) {
-    // Wait for End of conversion (EOC)
-    }
-    bcsum -= boxcar[bcn];
-    bcsum += boxcar[bcn] = ADC1->DR;
-    bcn += 1;
-    if (bcn >= BCSIZE)
-        bcn = 0;
-    volume = bcsum / BCSIZE;
+    updateScore(score);
+    printf("Score: %d\n", score);
 }
 
 void init_tim2(void) {
     RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
     TIM2->PSC = 4800-1;
-    TIM2->ARR = 1000-1;
+    TIM2->ARR = 10000-1;
     TIM2->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<15);
     TIM2->CR1 |= TIM_CR1_CEN;
