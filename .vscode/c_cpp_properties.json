@@ -8,27 +8,27 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/src",
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/lib",
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/include",
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
-                "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
-                "C:/Users/User/.platformio/packages/framework-cmsis/CMSIS/Include",
-                "C:/Users/User/.platformio/packages/framework-cmsis-stm32f0/Include",
+                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/src",
+                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/lib",
+                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/include",
+                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
+                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
+                "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
+                "C:/Users/david/.platformio/packages/framework-cmsis/CMSIS/Include",
+                "C:/Users/david/.platformio/packages/framework-cmsis-stm32f0/Include",
                 ""
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/src",
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/lib",
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/include",
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
-                    "C:/Users/User/OneDrive/Documents/GitHub/PROJECT/New folder/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
-                    "C:/Users/User/.platformio/packages/framework-cmsis/CMSIS/Include",
-                    "C:/Users/User/.platformio/packages/framework-cmsis-stm32f0/Include",
+                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/src",
+                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/lib",
+                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/include",
+                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Include",
+                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis/Include",
+                    "C:/Users/david/OneDrive/Documentos/GitHub/362 Labs/SuperSPIs/.pio/libdeps/nucleo_f091rc/framework-cmsis-stm32f0/Source/Templates",
+                    "C:/Users/david/.platformio/packages/framework-cmsis/CMSIS/Include",
+                    "C:/Users/david/.platformio/packages/framework-cmsis-stm32f0/Include",
                     ""
                 ]
             },
@@ -40,7 +40,7 @@
                 "F_CPU=48000000L",
                 ""
             ],
-            "compilerPath": "C:/Users/User/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
+            "compilerPath": "C:/Users/david/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
             "compilerArgs": [
                 "-mthumb",
                 "-mcpu=cortex-m0",
