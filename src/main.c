@@ -3,7 +3,7 @@
 #include "stdio.h"
 #include <math.h>   // for M_PI
 #include <stdint.h>
-#include "whitestripes.h"
+// #include "whitestripes.h"
 #include <stdlib.h> // for abs()
 #include "tty.h"
 
@@ -37,8 +37,15 @@
 #define BUTTON_PORT GPIOB
 #define BIT_BANGING_PORT GPIOB
 
+#define MATRIX_WIDTH 64
+#define MATRIX_HEIGHT 32
+#define FRAMEBUFFER_BYTES (MATRIX_WIDTH*MATRIX_HEIGHT/2)
+uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 B1 G1]
+int row;
+int portc;
+
 // Game variables
-volatile uint16_t score = 0;
+uint8_t score = 10;
 volatile uint16_t high_score = 0;
 volatile uint8_t note_positions[LED_MATRIX_WIDTH];  // Array to track note positions
 uint8_t oled_data_buffer[16];                       // Buffer for OLED display data
@@ -98,7 +105,7 @@ void init_usart5(void);
 void initc(void);
 void initb(void);
 void LED_Matrix_Update(void);
-void sendBit(uint8_t red, uint8_t green, uint8_t blue);
+void sendRGB1(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
 void updateMatrix(uint8_t *framebuffer, size_t size);
 void initButton(void);
@@ -120,7 +127,6 @@ void setup_tim7();
 void changeRow(uint8_t row);
 void USER_input_init();
 
-int row;
 
 
 // Main Function
@@ -133,15 +139,16 @@ int main(void) {
     // I2C_Init();  // Initialize I2C for EEPROM/OLED
 
     //Initialize GPIO Matrix and TIM7 for switching rows
-    #define LED_Matrix_Subsytem
+    // #define LED_Matrix_Subsytem
     #if defined(LED_Matrix_Subsytem)
     LED_Matrix_init();
     setup_tim7();
     #endif
     //User Input GPIO initialization
-    // #define USER_input_subsystem
+    #define USER_input_subsystem
     #if defined(USER_input_subsystem)
     USER_input_init();
+    init_exti();
     #endif
     // OLED SPI initialization
     #define SPI_subsystem
@@ -150,23 +157,32 @@ int main(void) {
     spi1_init_oled();
     spi1_setup_dma();
     spi1_enable_dma();
+    setup_tim14();
     #endif
     //Setup ADC for Volume controller
-    #define ADC_subsystem
+    // #define ADC_subsystem
     #if defined(ADC_subsystem)
     setup_adc();
     init_tim2();
     #endif
     //Setup DAC for music reproduction
-    #define DAC_subsystem
+    // #define DAC_subsystem
     #if defined(DAC_subsystem)
     init_wavetable();
+    // offset0=89142*12;
     setup_dac();
     init_tim6();
     float f = 460.5;
     set_freq(0,f);
     #endif
 
+    // for(;;) {
+    //     int portc = GPIOC->IDR;
+    //     if (portc&1){
+    //     togglexn(GPIOC, 6);
+    //     }
+    //     // nano_wait(500000000);
+    // }
     // Main loop
     // while (1) {
         // Bit-banging LED matrix update
@@ -189,7 +205,14 @@ int main(void) {
     // }
 }
 
-
+void togglexn(GPIO_TypeDef *port, int n) {
+  uint16_t portvalue=port->ODR;
+    if (portvalue & (1<<n)){
+      port->BRR |= (1<<n);
+    }else{
+      port->BSRR |= (1<<n);
+    }
+}
 //-------------------------------
 // Timer 7 for Bit banging
 //-------------------------------
@@ -199,13 +222,15 @@ void TIM7_IRQHandler(){
   row ++;
   if (row>32) row = 0;
     for(int i = 0; i<64; i++){
-        sendBit(1,0,1);
+        sendRGB1(0,1,1);
+        sendRGB2(0,0,1);
     }    
     GPIOB->BSRR |= OE_PIN;
     changeRow(row);
     latchData();
     GPIOB->BRR |= OE_PIN;
 }
+
 
 void setup_tim7() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM7EN;
@@ -245,6 +270,65 @@ void USER_input_init() {
     RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
     GPIOC->MODER &= 0xfffffff0;
     GPIOC->PUPDR &= 0xfffffff0;
+
+    GPIOC->MODER |= GPIO_MODER_MODER6_0| GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
+}
+
+void init_exti() {
+  RCC->APB2ENR |= RCC_APB2ENR_SYSCFGCOMPEN;
+  // Setting Port B 0, 2, 3
+  SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI0;
+  SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI2;
+  SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI3;
+  SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PC;
+  SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI2_PC;
+  SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI3_PC;
+  SYSCFG->EXTICR[1] &= ~SYSCFG_EXTICR2_EXTI4;
+  SYSCFG->EXTICR[1] |= SYSCFG_EXTICR2_EXTI4_PC;
+
+  //Setting pins to generate interrupt ont eh rising edge
+  EXTI->RTSR |= EXTI_RTSR_TR0;
+  EXTI->RTSR |= EXTI_RTSR_TR2;
+  EXTI->RTSR |= EXTI_RTSR_TR3;
+  EXTI->RTSR |= EXTI_RTSR_TR4;
+
+  // Unmask pins
+  EXTI->IMR |= EXTI_IMR_IM0;
+  EXTI->IMR |= EXTI_IMR_IM2;
+  EXTI->IMR |= EXTI_IMR_IM3;
+  EXTI->IMR |= EXTI_IMR_IM4;
+  
+  // Enable interrupts
+  NVIC->ISER[0] |= (1<<5);
+  NVIC->ISER[0] |= (1<<6);
+  NVIC->ISER[0] |= (1<<7);
+}
+
+void EXTI0_1_IRQHandler(){
+    EXTI->PR = EXTI_PR_PR0;
+    score = score + 20;
+    togglexn(GPIOC, 6);
+}
+
+void EXTI2_3_IRQHandler(){
+    if (EXTI->PR & EXTI_PR_PR2) {
+        togglexn(GPIOC, 7);      // Toggle pin PC7
+        score = score + 30;
+        EXTI->PR = EXTI_PR_PR2;  // Clear the interrupt pending flag for EXTI line 2
+    }
+
+    // Check if the interrupt was triggered by EXTI line 3
+    if (EXTI->PR & EXTI_PR_PR3) {
+        togglexn(GPIOC, 8); // Toggle pin PC8
+        score = score + 40;      
+        EXTI->PR = EXTI_PR_PR3;  // Clear the interrupt pending flag for EXTI line 3
+    }
+}
+
+void EXTI4_15_IRQHandler(){
+    EXTI->PR = EXTI_PR_PR4;
+    score = score + 50;      
+    togglexn(GPIOC, 9);
 }
 
 void LED_Matrix_init() {
@@ -376,23 +460,45 @@ void USART3_8_IRQHandler(void) {
 // BIT banging LED Matrix
 //===========================================================================
 // Send bit to LED matrix
-void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
+void sendRGB1(uint8_t red, uint8_t green, uint8_t blue) {
     if (red==1) {
-        GPIOB->BSRR = R1_PIN | R2_PIN ;
+        GPIOB->BSRR = R1_PIN;
     } else {
-        GPIOB->BRR = R1_PIN | R2_PIN;
+        GPIOB->BRR = R1_PIN;
     }
 
     if (green==1) {
-        GPIOB->BSRR = G1_PIN | G2_PIN;
+        GPIOB->BSRR = G1_PIN;
     } else {
-        GPIOB->BRR = G1_PIN | G2_PIN;
+        GPIOB->BRR = G1_PIN;
     }
 
     if (blue==1) {
-        GPIOB->BSRR = B1_PIN | B2_PIN;
+        GPIOB->BSRR = B1_PIN;
     } else {
-        GPIOB->BRR = B1_PIN | B2_PIN;
+        GPIOB->BRR = B1_PIN;
+    }
+    GPIOB->BSRR = CLK_PIN;  // Set CLK high
+    GPIOB->BRR = CLK_PIN;   // Set CLK low
+}
+
+void sendRGB2(uint8_t red, uint8_t green, uint8_t blue) {
+    if (red==1) {
+        GPIOB->BSRR = R2_PIN ;
+    } else {
+        GPIOB->BRR = R2_PIN;
+    }
+
+    if (green==1) {
+        GPIOB->BSRR = G2_PIN;
+    } else {
+        GPIOB->BRR =  G2_PIN;
+    }
+
+    if (blue==1) {
+        GPIOB->BSRR = B2_PIN;
+    } else {
+        GPIOB->BRR =  B2_PIN;
     }
     GPIOB->BSRR = CLK_PIN;  // Set CLK high
     GPIOB->BRR = CLK_PIN;   // Set CLK low
@@ -416,7 +522,7 @@ void LED_Matrix_Update(void) {
         uint8_t red = (note_positions[col] & 0x01) ? 1 : 0;
         uint8_t green = (note_positions[col] & 0x02) ? 1 : 0;
         uint8_t blue = (note_positions[col] & 0x04) ? 1 : 0;
-        sendBit(red, green, blue);
+        sendRGB1(red, green, blue);
     }
 
     latchData();
@@ -509,6 +615,49 @@ void spi1_enable_dma(void) {
     SPI1->CR2 |= SPI_CR2_TXEIE;
     DMA1_Channel3->CCR |= 0X00000001; // Enable channel
 }
+
+void updateScore(uint32_t score) {
+    // Indices for the score section in the display array
+    const int scoreStartIndex = 9;
+    const int scoreEndIndex = 13;
+
+    // Ensure score fits within the range (5 digits max)
+    if (score > 99999) {
+        score = 99999; // Clamp the score to the maximum displayable value
+    }
+
+    // Fill score digits into the display array
+    for (int i = scoreEndIndex; i >= scoreStartIndex; i--) {
+        display[i] = 0x200 + ('0' + (score % 10)); // Extract the last digit and convert to display format
+        score /= 10;
+    }
+
+    // Fill leading spaces if the score has fewer than 5 digits
+    for (int i = scoreStartIndex; i <= scoreEndIndex && score == 0; i++) {
+        if (display[i] == 0x200) {
+            display[i] = 0x200 + ' ';
+        }
+    }
+}
+
+//-------------------------------
+// Timer 14 ISR goes here
+//-------------------------------
+void TIM14_IRQHandler(){
+  TIM14->SR &= ~TIM_SR_UIF;
+  updateScore(score);
+//   score ++;
+}
+
+void setup_tim14() {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
+    TIM14->PSC = 12000-1;
+    TIM14->ARR = 1000-1;
+    TIM14->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1<<19);
+    TIM14->CR1 |= TIM_CR1_CEN;
+}
+
 
 
 //=============================================================================
@@ -619,6 +768,18 @@ void TIM6_DAC_IRQHandler(void){
     DAC->DHR12R1 = samp;
 }
 
+
+// void TIM6_DAC_IRQHandler(void){// Implemented for music
+//     TIM6->SR &= ~TIM_SR_UIF;
+//     offset0 ++;
+
+//     int samp = myfile_audio_data[offset0];
+//     samp = samp*volume;
+//     samp = (samp>>17);
+//     samp += 2048;
+//     DAC->DHR12R1 = samp;
+// }
+
 void init_tim6(void) {
     RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
     TIM6->PSC = 48-1;
@@ -726,14 +887,14 @@ void Start_Audio_DMA(void) {
 }
 
 /// Play audio track from received data buffer using DAC
-void Play_Audio_Track(void) {
-    // Add a correct length for whitestripes_audio_data_len if it's not already defined
-    for (unsigned int i = 0; i < whitestripes_audio_data_len && i < sizeof(whitestripes_audio_data); i++) {
-        while (!(TIM2->SR & TIM_SR_UIF)); // Wait for timer overflow
-        TIM2->SR &= ~TIM_SR_UIF;           // Clear update interrupt flag
-        DAC->DHR8R1 = whitestripes_audio_data[i];  // Set DAC output to current sample value
-    }
-}
+// void Play_Audio_Track(void) {
+//     // Add a correct length for whitestripes_audio_data_len if it's not already defined
+//     for (unsigned int i = 0; i < whitestripes_audio_data_len && i < sizeof(whitestripes_audio_data); i++) {
+//         while (!(TIM2->SR & TIM_SR_UIF)); // Wait for timer overflow
+//         TIM2->SR &= ~TIM_SR_UIF;           // Clear update interrupt flag
+//         DAC->DHR8R1 = whitestripes_audio_data[i];  // Set DAC output to current sample value
+//     }
+// }
 
 
 // Detect Button Press to Check for Note Hits with Timing-Based Scoring
