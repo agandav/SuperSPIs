@@ -64,6 +64,24 @@ uint16_t display[34] = {
         0x200+'e', 0x200+'!', 0x200+' ', 0x200+' ', + 0x200+' ', 0x200+' ', 0x200+' ', 0x200+' ',
 };
 
+//============================================================================
+// Varables for boxcar averaging.
+//============================================================================
+#define BCSIZE 32
+int bcsum = 0;
+int boxcar[BCSIZE];
+int bcn = 0;
+uint32_t volume = 2048;
+
+// Parameters for the wavetable size and expected synthesis rate.
+#define N 1000
+#define RATE 20000
+short int wavetable[N];
+int step0 = 0;
+int offset0 = 0;
+int step1 = 0;
+int offset1 = 0;
+
 // SysTick Handler to increment msTicks
 void SysTick_Handler(void) {
     msTicks++;
@@ -98,6 +116,9 @@ int Game_Over(void);
 uint16_t I2C_EEPROM_Read_HighScore(void);
 void I2C_EEPROM_Write_HighScore(uint16_t score);
 void Display_High_Score(void);
+void setup_tim7();
+void changeRow(uint8_t row);
+void USER_input_init();
 
 int row;
 
@@ -109,19 +130,42 @@ int main(void) {
 
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
-    // DAC_Audio_Init();  // Initialize DAC
     // I2C_Init();  // Initialize I2C for EEPROM/OLED
 
     //Initialize GPIO Matrix and TIM7 for switching rows
+    #define LED_Matrix_Subsytem
+    #if defined(LED_Matrix_Subsytem)
     LED_Matrix_init();
     setup_tim7();
+    #endif
     //User Input GPIO initialization
+    // #define USER_input_subsystem
+    #if defined(USER_input_subsystem)
     USER_input_init();
+    #endif
     // OLED SPI initialization
+    #define SPI_subsystem
+    #if defined(SPI_subsystem)
     init_spi1();
     spi1_init_oled();
     spi1_setup_dma();
     spi1_enable_dma();
+    #endif
+    //Setup ADC for Volume controller
+    #define ADC_subsystem
+    #if defined(ADC_subsystem)
+    setup_adc();
+    init_tim2();
+    #endif
+    //Setup DAC for music reproduction
+    #define DAC_subsystem
+    #if defined(DAC_subsystem)
+    init_wavetable();
+    setup_dac();
+    init_tim6();
+    float f = 460.5;
+    set_freq(0,f);
+    #endif
 
     // Main loop
     // while (1) {
@@ -196,7 +240,7 @@ void changeRow(uint8_t row){
 
 }
 
-void USER_input_init(void) {
+void USER_input_init() {
     // Only enable port C for the keypad
     RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
     GPIOC->MODER &= 0xfffffff0;
@@ -448,10 +492,6 @@ void spi1_display2(const char *string) {
     }
 }
 
-//===========================================================================
-// Configure the proper DMA channel to be triggered by SPI1_TX.
-// Set the SPI1 peripheral to trigger a DMA when the transmitter is empty.
-//===========================================================================
 void spi1_setup_dma(void) {
     RCC->AHBENR |= RCC_AHBENR_DMAEN; //Clock enable
 
@@ -465,25 +505,129 @@ void spi1_setup_dma(void) {
     DMA1_Channel3->CCR |= 0x00000020; //Circular operation (CIR)
 }
 
-//===========================================================================
-// Enable the DMA channel triggered by SPI1_TX.
-//===========================================================================
 void spi1_enable_dma(void) {
     SPI1->CR2 |= SPI_CR2_TXEIE;
     DMA1_Channel3->CCR |= 0X00000001; // Enable channel
 }
 
 
+//=============================================================================
+// Analog-to-digital conversion for a volume level.
+//=============================================================================
+void setup_adc(void) {
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+    GPIOA->MODER |= 0x0000000C; //PA1 to analog mode
 
+    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN; //Clk enable
+    RCC->CR2 |= RCC_CR2_HSI14ON; //Clk turned on
+    while ((RCC->CR2 & RCC_CR2_HSI14RDY) == 0) {
+        //Wait for HSI14 oscillator to be ready
+    }
+    // ADC1->CFGR2 &= ~ADC_CFGR2_CKMODE; //Clk selection
 
+    ADC1->CR |= ADC_CR_ADEN; //ADC enable
+    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {
+    // Wait for the ADC to be ready    
+    }
+    ADC1->CHSELR |= 0x00000002; // Channel Selection
+    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {
+    // Wait for the ADC to be ready
+    }
+}
 
+//============================================================================
+// Timer 2 ISR
+//============================================================================
+void TIM2_IRQHandler(void){
+    TIM2->SR &= ~TIM_SR_UIF;
+    ADC1->CR |= ADC_CR_ADSTART;
+    while ((ADC1->ISR & ADC_ISR_EOC) == 0) {
+    // Wait for End of conversion (EOC)
+    }
+    bcsum -= boxcar[bcn];
+    bcsum += boxcar[bcn] = ADC1->DR;
+    bcn += 1;
+    if (bcn >= BCSIZE)
+        bcn = 0;
+    volume = bcsum / BCSIZE;
+}
 
+void init_tim2(void) {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+    TIM2->PSC = 4800-1;
+    TIM2->ARR = 1000-1;
+    TIM2->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1<<15);
+    TIM2->CR1 |= TIM_CR1_CEN;
+}
 
+//===========================================================================
+// Setting up the DAC for music reproduction
+//===========================================================================
+void init_wavetable(void) {
+    for(int i=0; i < N; i++)
+         wavetable[i] = 32767 * sin(2 * M_PI * i / N);
+}
 
+void set_freq(int chan, float f) {
+    if (chan == 0) {
+        if (f == 0.0) {
+            step0 = 0;
+            offset0 = 0;
+        } else
+            step0 = (f * N / RATE) * (1<<16);
+    }
+    if (chan == 1) {
+        if (f == 0.0) {
+            step1 = 0;
+            offset1 = 0;
+        } else
+            step1 = (f * N / RATE) * (1<<16);
+    }
+}
 
+void setup_dac(void) {
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+    GPIOA->MODER |= 0x00000300; //PA4 to analog mode
 
+    RCC->APB1ENR |= RCC_APB1ENR_DACEN;
 
+    DAC->CR &= ~DAC_CR_TSEL1; // Select TRGO to TIM6
+    DAC->CR |= DAC_CR_TEN1; // Trigger Enable
+    DAC->CR |= DAC_CR_EN1; // DAC Enable   
 
+}
+
+//============================================================================
+// Timer 6 ISR
+//============================================================================
+void TIM6_DAC_IRQHandler(void){
+    TIM6->SR &= ~TIM_SR_UIF;
+    offset0 += step0;
+    offset1 += step1;
+    if (offset0 >= (N<<16)){
+        offset0 = offset0 - (N<<16);
+    }
+    if (offset1 >= (N<<16)){
+        offset1 = offset1 - (N<<16);
+    }
+
+    int samp = wavetable[offset0>>16] + wavetable[offset1>>16];
+    samp = samp*volume;
+    samp = (samp>>17);
+    samp += 2048;
+    DAC->DHR12R1 = samp;
+}
+
+void init_tim6(void) {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
+    TIM6->PSC = 48-1;
+    TIM6->ARR = (1000000/RATE)-1;
+    TIM6->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] = (1<<17);
+    TIM6->CR1 |= TIM_CR1_CEN;
+    TIM6->CR2 |= TIM_CR2_MMS_1;
+}
 
 
 
