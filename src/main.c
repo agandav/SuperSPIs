@@ -6,6 +6,7 @@
 // #include "whitestripes.h"
 #include <stdlib.h> // for abs()
 #include "tty.h"
+#include <projectsong.h>
 
 // Definitions for game parameters and hardware setup
 #define LED_MATRIX_WIDTH 64
@@ -49,6 +50,7 @@ int color_index;
 uint8_t blockColors[4] = {1, 2, 4, 7};
 
 
+
 // Game variables
 int score = 0;
 volatile uint16_t high_score = 0;
@@ -87,7 +89,7 @@ uint32_t volume = 2048;
 
 // Parameters for the wavetable size and expected synthesis rate.
 #define N 1000
-#define RATE 20000
+#define RATE 25050
 short int wavetable[N];
 int step0 = 0;
 int offset0 = 0;
@@ -137,8 +139,8 @@ void USER_input_init();
 // Main Function
 int main(void) {
     internal_clock();
-    SystemInit();                    // CMSIS System Initialization
-    SysTick_Config(SystemCoreClock / 1000);  // 1ms Systick for timing
+    // SystemInit();                    // CMSIS System Initialization
+    // SysTick_Config(SystemCoreClock / 1000);  // 1ms Systick for timing
 
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
@@ -179,38 +181,43 @@ int main(void) {
     #if defined(LED_Matrix_subsystem)
     clearFramebuffer();
     LED_Matrix_init();
-    setup_tim3();
     setup_tim7();
+    setup_tim14();
     #endif
 
+//     // Main game loop
+    unsigned int current_beat_index = 0;
 
-    // for(;;) {
-    //     int portc = GPIOC->IDR;
-    //     if (portc&1){
-    //     togglexn(GPIOC, 6);
-    //     }
-    //     // nano_wait(500000000);
-    // }
-    // Main loop
     // while (1) {
-        // Bit-banging LED matrix update
-        // LED_Matrix_Update();             // Update falling notes
-        // uint32_t current_time = SysTick->VAL;  // Get current time in ms
-        // Detect_Note_Hit(current_time);       // Check for user input and hits
-        // Play_Audio_Track();                  // Play background music
-
-        // Display current score on OLED
-        // OLED_Display_Score_DMA(score);
-
-        // if (Game_Over()) {
-        //     if (score > high_score) {
-        //         I2C_EEPROM_Write_HighScore(score);  // Update high score in EEPROM
-        //         high_score = score;
-        //     }
-        //     Display_High_Score();  // Show high score on OLED
-        //     Game_Reset();          // Restart the game
-        // }
+    //     uint32_t current_time_ms = GetTick(); // Get current time in milliseconds
+    //     printf("Current time : %f", current_time_ms);
     // }
+        // Synchronize block falling with beats
+    //     if (current_beat_index < num_beats && 
+    //         current_time_ms >= (unsigned int)(beat_timings[current_beat_index] * 1000)) {
+
+    //         updateFallingBlocks();  // Trigger a block fall when a beat is reached
+    //         current_beat_index++;   // Move to the next beat
+    //     }
+
+    //     // Other game logic like updating the display, detecting note hits, etc.
+    //     LED_Matrix_Update();
+    //     Detect_Note_Hit(current_time_ms);
+    //     Play_Audio_Track();
+    //     OLED_Display_Score_DMA(score);
+
+    //     if (Game_Over()) {
+    //         if (score > high_score) {
+    //             I2C_EEPROM_Write_HighScore(score);
+    //             high_score = score;
+    //         }
+    //         Display_High_Score();
+    //         Game_Reset();
+    //         current_beat_index = 0;  // Reset beat index when game resets
+    //     }
+    // }
+
+
 }
 
 void togglexn(GPIO_TypeDef *port, int n) {
@@ -226,7 +233,24 @@ void togglexn(GPIO_TypeDef *port, int n) {
 //-------------------------------
 // uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 G1 B1]
 void TIM7_IRQHandler(){
-    TIM7->SR &= ~TIM_SR_UIF; 
+    
+    TIM7->SR &= ~TIM_SR_UIF;
+    // printf("tim3 interrupt");
+    clearFramebuffer();
+    setBlock(block_position, 0, 8, 32, blockColors[color_index]);
+    block_position++;
+    if(block_position>64){
+        block_position = 0;
+        color_index++;
+        if(color_index>4){
+            color_index = 0;
+        }
+    }
+}
+
+
+void TIM14_IRQHandler(){
+    TIM14->SR &= ~TIM_SR_UIF; 
     uint8_t*pRowData = &framebuffer[(row)*MATRIX_WIDTH];
     for(int i = 0; i<64; i++){
         uint8_t pixelData = pRowData[i];
@@ -251,38 +275,23 @@ void TIM7_IRQHandler(){
     }
     latchData();
     GPIOB->BRR |= OE_PIN;
+
 }
 
-void TIM3_IRQHandler(){
-    TIM3->SR &= ~TIM_SR_UIF;
-    // printf("tim3 interrupt");
-    clearFramebuffer();
-    setBlock(block_position, 0, 8, 32, blockColors[color_index]);
-    block_position++;
-    if(block_position>64){
-        block_position = 0;
-        color_index++;
-        if(color_index>4){
-            color_index = 0;
-        }
-    }
-}
-
-void setup_tim3() {
-    RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
-    TIM3->PSC = 4800-1;
-    TIM3->ARR = 50-1;
-    TIM3->DIER |= TIM_DIER_UIE;
-    NVIC->ISER[0] |= (1<<16);
-    TIM3->CR1 |= TIM_CR1_CEN;
-    block_position = 0;
+void setup_tim14() {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
+    TIM14->PSC = 4800-1;
+    TIM14->ARR = 10-1;
+    TIM14->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1<<19);
+    TIM14->CR1 |= TIM_CR1_CEN;
 }
 
 
 void setup_tim7() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM7EN;
-    TIM7->PSC = 480-1;
-    TIM7->ARR = 10-1;
+    TIM7->PSC = 4800-1;
+    TIM7->ARR = 50-1;
     TIM7->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<18);
     TIM7->CR1 |= TIM_CR1_CEN;
@@ -802,7 +811,7 @@ void updateScore(uint32_t internal_score) {
 void TIM2_IRQHandler(void){
     TIM2->SR &= ~TIM_SR_UIF;
     updateScore(score);
-    printf("Score: %d\n", score);
+    // printf("Score: %d\n", score);
 }
 
 void init_tim2(void) {
@@ -854,35 +863,38 @@ void setup_dac(void) {
 //============================================================================
 // Timer 6 ISR
 //============================================================================
-void TIM6_DAC_IRQHandler(void){
-    TIM6->SR &= ~TIM_SR_UIF;
-    offset0 += step0;
-    offset1 += step1;
-    if (offset0 >= (N<<16)){
-        offset0 = offset0 - (N<<16);
-    }
-    if (offset1 >= (N<<16)){
-        offset1 = offset1 - (N<<16);
-    }
-
-    int samp = wavetable[offset0>>16] + wavetable[offset1>>16];
-    samp = samp*volume;
-    samp = (samp>>17);
-    samp += 2048;
-    DAC->DHR12R1 = samp;
-}
-
-
-// void TIM6_DAC_IRQHandler(void){// Implemented for music
+// void TIM6_DAC_IRQHandler(void){
 //     TIM6->SR &= ~TIM_SR_UIF;
-//     offset0 ++;
+//     offset0 += step0;
+//     offset1 += step1;
+//     if (offset0 >= (N<<16)){
+//         offset0 = offset0 - (N<<16);
+//     }
+//     if (offset1 >= (N<<16)){
+//         offset1 = offset1 - (N<<16);
+//     }
 
-//     int samp = myfile_audio_data[offset0];
+//     int samp = wavetable[offset0>>16] + wavetable[offset1>>16];
 //     samp = samp*volume;
 //     samp = (samp>>17);
 //     samp += 2048;
 //     DAC->DHR12R1 = samp;
 // }
+
+
+void TIM6_DAC_IRQHandler(void){// Implemented for music
+     TIM6->SR &= ~TIM_SR_UIF; // Clear interrupt flag
+
+    offset0++;
+    if (offset0 >= 209273) {
+        offset0 = 0; // Loop audio data
+    }
+
+    int samp = projectsong_audio_data[offset0]; 
+    samp = (samp * volume);  // Apply volume scaling
+    samp = (samp * 4095) / 255; // Scale 8-bit to 12-bit
+    DAC->DHR12R1 = samp; // Output to DAC
+}
 
 void init_tim6(void) {
     RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
@@ -895,172 +907,207 @@ void init_tim6(void) {
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-int isButtonPressed(void) {
-    // Check if button is pressed (active low)
-    return !(GPIOB->IDR & BUTTON_PIN); // Returns 1 if pressed
+void play_hit_sound(void) {
+    set_sound_frequency(880);  // Set a high frequency for hits
+    delay(100);                // Play the sound for 100 ms
+    stop_sound();              // Stop the sound after duration
 }
 
-void checkButtonHit(uint8_t notePosition) {
-    static uint32_t lastPressTime = 0;
-    uint32_t currentTime = SysTick->VAL; // Get current system time in ms
+void play_miss_sound(void) {
+    set_sound_frequency(440);  // Set a lower frequency for misses
+    delay(100);                // Play the sound for 100 ms
+    stop_sound();              // Stop the sound after duration
+}
 
-    if (isButtonPressed()) {
-        // Debounce button: Ensure at least 200ms between presses
-        if (currentTime - lastPressTime > 200) {
-            lastPressTime = currentTime; // Update last press time
-
-            if (notePosition == TARGET_POSITION) { // Synchronize with note
-                printf("Hit!\n");
-            } else {
-                printf("Miss.\n");
-            }
-        }
-    }
+void Detect_Note_Hit(uint32_t current_time) {
+                  for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
+                  if (framebuffer[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
+                      if ((BUTTON_PORT->IDR & BUTTON_PIN) == 0) {  // Button pressed (active low)
+                          int timing_difference = abs((int)(current_time - note_timing[i]));
+                          if (timing_difference <= TIMING_WINDOW) {
+                              score += 10;  // Perfect hit
+                              play_hit_sound();  // Play hit sound
+                          } else if (timing_difference <= TIMING_WINDOW * 2) {
+                              score += 5;  // Good hit
+                              play_hit_sound();  // Play hit sound
+                          } else {
+                              score += 2;  // Okay hit
+                              play_hit_sound();  // Play hit sound
+                          }
+                      } else {
+                          play_miss_sound();   // Play miss sound
+                          missed_notes++;
+                      }
+                      framebuffer[i] = 0;    // Reset note position
+                  }
+              }
 }
 
 
-// Initialize DAC for Audio Playback
-void DAC_Audio_Init(void) {
-    // Initialize DAC channels for music playback and note sound effects
-    RCC->APB1ENR |= RCC_APB1ENR_DACEN;  // Enable DAC clock
-    DAC->CR |= DAC_CR_EN1;              // Enable DAC channel 1
-}
-
-// Play Sound for Note Hit or Miss
-void Play_Note_Sound(int hit) {
-    if (hit) {
-        DAC->DHR8R1 = 0xFF;  // Example max amplitude
-    } else {
-        DAC->DHR8R1 = 0x80;  // Example lower amplitude
-    }
-}
-
-// Initialize I2C peripheral with DMA
-void I2C_Init(void) {
-    I2C2->TIMINGR = I2C_TIMING;               // Set timing
-    I2C2->CR1 = I2C_CR1_PE;                   // Enable I2C peripheral
-    I2C2->CR1 |= I2C_CR1_TXDMAEN | I2C_CR1_RXDMAEN;  // Enable DMA for TX and RX
-}
-
-// Display score on SOC1602A OLED using DMA
-void OLED_Display_Score_DMA(uint16_t score) {
-    snprintf((char*)oled_data_buffer, sizeof(oled_data_buffer), "Score: %u", score);
-    I2C2->CR2 = (OLED_ADDRESS << 1) | (sizeof(oled_data_buffer) << 16) | I2C_CR2_AUTOEND;
-    I2C2->CR2 |= I2C_CR2_START;
-
-    DMA1_Channel2->CMAR = (uint32_t)oled_data_buffer;
-    DMA1_Channel2->CPAR = (uint32_t)&I2C2->TXDR;
-    DMA1_Channel2->CNDTR = sizeof(oled_data_buffer);
-    DMA1_Channel2->CCR |= DMA_CCR_EN;
-}
-// page 205 & 943
 
 
-// Start receiving audio data from EEPROM using DMA
-void Start_Audio_DMA(void) {
-    I2C2->CR2 = I2C_CR2_RD_WRN | (sizeof(audio_data_buffer) << 16) | (EEPROM_AUDIO_ADDRESS << 1) | I2C_CR2_AUTOEND;
-    I2C2->CR2 |= I2C_CR2_START;
 
-    DMA1_Channel3->CMAR = (uint32_t)audio_data_buffer;
-    DMA1_Channel3->CPAR = (uint32_t)&I2C2->RXDR;
-    DMA1_Channel3->CNDTR = sizeof(audio_data_buffer);
-    DMA1_Channel3->CCR |= DMA_CCR_EN;
-}
 
-/// Play audio track from received data buffer using DAC
-// void Play_Audio_Track(void) {
-//     // Add a correct length for whitestripes_audio_data_len if it's not already defined
-//     for (unsigned int i = 0; i < whitestripes_audio_data_len && i < sizeof(whitestripes_audio_data); i++) {
-//         while (!(TIM2->SR & TIM_SR_UIF)); // Wait for timer overflow
-//         TIM2->SR &= ~TIM_SR_UIF;           // Clear update interrupt flag
-//         DAC->DHR8R1 = whitestripes_audio_data[i];  // Set DAC output to current sample value
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// int isButtonPressed(void) {
+//     // Check if button is pressed (active low)
+//     return !(GPIOB->IDR & BUTTON_PIN); // Returns 1 if pressed
+// }
+
+// void checkButtonHit(uint8_t notePosition) {
+//     static uint32_t lastPressTime = 0;
+//     uint32_t currentTime = SysTick->VAL; // Get current system time in ms
+
+//     if (isButtonPressed()) {
+//         // Debounce button: Ensure at least 200ms between presses
+//         if (currentTime - lastPressTime > 200) {
+//             lastPressTime = currentTime; // Update last press time
+
+//             if (notePosition == TARGET_POSITION) { // Synchronize with note
+//                 printf("Hit!\n");
+//             } else {
+//                 printf("Miss.\n");
+//             }
+//         }
 //     }
 // }
 
 
-// Detect Button Press to Check for Note Hits with Timing-Based Scoring
-void Detect_Note_Hit(uint32_t current_time) {
-    for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
-        if (note_positions[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
-            if (isButtonPressed()) {
-                int timing_difference = abs((int)(current_time - note_timing[i]));
-                if (timing_difference <= TIMING_WINDOW) {
-                    score += 10;  // Perfect hit
-                    Play_Note_Sound(1);  // Hit sound
-                } else if (timing_difference <= TIMING_WINDOW * 2) {
-                    score += 5;  // Good hit
-                    Play_Note_Sound(1);  // Hit sound
-                } else {
-                    score += 2;  // Okay hit
-                    Play_Note_Sound(1);  // Hit sound
-                }
-            } else {
-                Play_Note_Sound(0);   // Missed sound
-                missed_notes++;
-            }
-            note_positions[i] = 0;    // Reset note position
-        }
-    }
-}
+// // Initialize DAC for Audio Playback
+// void DAC_Audio_Init(void) {
+//     // Initialize DAC channels for music playback and note sound effects
+//     RCC->APB1ENR |= RCC_APB1ENR_DACEN;  // Enable DAC clock
+//     DAC->CR |= DAC_CR_EN1;              // Enable DAC channel 1
+// }
+
+// // Play Sound for Note Hit or Miss
+// void Play_Note_Sound(int hit) {
+//     if (hit) {
+//         DAC->DHR8R1 = 0xFF;  // Example max amplitude
+//     } else {
+//         DAC->DHR8R1 = 0x80;  // Example lower amplitude
+//     }
+// }
+
+// // Initialize I2C peripheral with DMA
+// void I2C_Init(void) {
+//     I2C2->TIMINGR = I2C_TIMING;               // Set timing
+//     I2C2->CR1 = I2C_CR1_PE;                   // Enable I2C peripheral
+//     I2C2->CR1 |= I2C_CR1_TXDMAEN | I2C_CR1_RXDMAEN;  // Enable DMA for TX and RX
+// }
+
+// // Display score on SOC1602A OLED using DMA
+// void OLED_Display_Score_DMA(uint16_t score) {
+//     snprintf((char*)oled_data_buffer, sizeof(oled_data_buffer), "Score: %u", score);
+//     I2C2->CR2 = (OLED_ADDRESS << 1) | (sizeof(oled_data_buffer) << 16) | I2C_CR2_AUTOEND;
+//     I2C2->CR2 |= I2C_CR2_START;
+
+//     DMA1_Channel2->CMAR = (uint32_t)oled_data_buffer;
+//     DMA1_Channel2->CPAR = (uint32_t)&I2C2->TXDR;
+//     DMA1_Channel2->CNDTR = sizeof(oled_data_buffer);
+//     DMA1_Channel2->CCR |= DMA_CCR_EN;
+// }
+// // page 205 & 943
 
 
-// Check if game is over (e.g., time limit or max misses)
-int Game_Over(void) {
-    printf("Game over, you lose!");
-    return missed_notes >= MAX_MISSES; // Placeholder condition
-}
+// // Start receiving audio data from EEPROM using DMA
+// void Start_Audio_DMA(void) {
+//     I2C2->CR2 = I2C_CR2_RD_WRN | (sizeof(audio_data_buffer) << 16) | (EEPROM_AUDIO_ADDRESS << 1) | I2C_CR2_AUTOEND;
+//     I2C2->CR2 |= I2C_CR2_START;
 
-// Reset Game State
-void Game_Reset(void) {
-    score = 0;
-    for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
-        note_positions[i] = 0;
-        note_timing[i] = 0;
-    }
-}
+//     DMA1_Channel3->CMAR = (uint32_t)audio_data_buffer;
+//     DMA1_Channel3->CPAR = (uint32_t)&I2C2->RXDR;
+//     DMA1_Channel3->CNDTR = sizeof(audio_data_buffer);
+//     DMA1_Channel3->CCR |= DMA_CCR_EN;
+// }
+
+// /// Play audio track from received data buffer using DAC
+// // void Play_Audio_Track(void) {
+// //     // Add a correct length for whitestripes_audio_data_len if it's not already defined
+// //     for (unsigned int i = 0; i < whitestripes_audio_data_len && i < sizeof(whitestripes_audio_data); i++) {
+// //         while (!(TIM2->SR & TIM_SR_UIF)); // Wait for timer overflow
+// //         TIM2->SR &= ~TIM_SR_UIF;           // Clear update interrupt flag
+// //         DAC->DHR8R1 = whitestripes_audio_data[i];  // Set DAC output to current sample value
+// //     }
+// // }
 
 
-// Read High Score from EEPROM
-uint16_t I2C_EEPROM_Read_HighScore(void) {
-    uint16_t high_score = 0;
-    I2C2->CR2 = (EEPROM_HIGH_SCORE_ADDRESS << 1) | (sizeof(high_score) << 16) | I2C_CR2_RD_WRN | I2C_CR2_AUTOEND;
-    I2C2->CR2 |= I2C_CR2_START;
-    while (!(I2C2->ISR & I2C_ISR_RXNE));
-    high_score = I2C2->RXDR;
-    return high_score;
-}
+// // Detect Button Press to Check for Note Hits with Timing-Based Scoring
+// void Detect_Note_Hit(uint32_t current_time) {
+//     for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
+//         if (note_positions[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
+//             if (isButtonPressed()) {
+//                 int timing_difference = abs((int)(current_time - note_timing[i]));
+//                 if (timing_difference <= TIMING_WINDOW) {
+//                     score += 10;  // Perfect hit
+//                     Play_Note_Sound(1);  // Hit sound
+//                 } else if (timing_difference <= TIMING_WINDOW * 2) {
+//                     score += 5;  // Good hit
+//                     Play_Note_Sound(1);  // Hit sound
+//                 } else {
+//                     score += 2;  // Okay hit
+//                     Play_Note_Sound(1);  // Hit sound
+//                 }
+//             } else {
+//                 Play_Note_Sound(0);   // Missed sound
+//                 missed_notes++;
+//             }
+//             note_positions[i] = 0;    // Reset note position
+//         }
+//     }
+// }
 
-// Write high score to EEPROM
-void I2C_EEPROM_Write_HighScore(uint16_t score) {
-    I2C1->CR2 = (EEPROM_HIGH_SCORE_ADDRESS << 1) | (2 << 16) | I2C_CR2_AUTOEND;
-    I2C1->CR2 |= I2C_CR2_START;
-    I2C1->TXDR = (score & 0xFF);  // Write low byte
-    while (!(I2C1->ISR & I2C_ISR_TXE));
-    I2C1->TXDR = (score >> 8);    // Write high byte
-}
+
+// // Check if game is over (e.g., time limit or max misses)
+// int Game_Over(void) {
+//     printf("Game over, you lose!");
+//     return missed_notes >= MAX_MISSES; // Placeholder condition
+// }
+
+// // Reset Game State
+// void Game_Reset(void) {
+//     score = 0;
+//     for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
+//         note_positions[i] = 0;
+//         note_timing[i] = 0;
+//     }
+// }
+
+
+// // Read High Score from EEPROM
+// uint16_t I2C_EEPROM_Read_HighScore(void) {
+//     uint16_t high_score = 0;
+//     I2C2->CR2 = (EEPROM_HIGH_SCORE_ADDRESS << 1) | (sizeof(high_score) << 16) | I2C_CR2_RD_WRN | I2C_CR2_AUTOEND;
+//     I2C2->CR2 |= I2C_CR2_START;
+//     while (!(I2C2->ISR & I2C_ISR_RXNE));
+//     high_score = I2C2->RXDR;
+//     return high_score;
+// }
+
+// // Write high score to EEPROM
+// void I2C_EEPROM_Write_HighScore(uint16_t score) {
+//     I2C1->CR2 = (EEPROM_HIGH_SCORE_ADDRESS << 1) | (2 << 16) | I2C_CR2_AUTOEND;
+//     I2C1->CR2 |= I2C_CR2_START;
+//     I2C1->TXDR = (score & 0xFF);  // Write low byte
+//     while (!(I2C1->ISR & I2C_ISR_TXE));
+//     I2C1->TXDR = (score >> 8);    // Write high byte
+// }
 
 // Reset game state
 /* void Game_Reset(void) {
@@ -1073,8 +1120,8 @@ void I2C_EEPROM_Write_HighScore(uint16_t score) {
 // Check if game is over
 
 
-// Display high score
-void Display_High_Score(void) {
-    printf("High Score: %d\n", high_score);  // Replace with OLED update logic
-}
+// // Display high score
+// void Display_High_Score(void) {
+//     printf("High Score: %d\n", high_score);  // Replace with OLED update logic
+// }
 

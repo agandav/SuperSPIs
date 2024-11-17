@@ -17445,6 +17445,8 @@ const unsigned char projectsong_audio_data[] = {
   0x1f, 0x1f, 0x1f, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x1f, 0x20, 0x1f,
   0x1f, 0x20, 0x1f, 0x1f, 0x1f
 };
+#define SONG_LENGTH (sizeof(projectsong_audio_data) / sizeof(projectsong_audio_data[0]))
+
 // Define the beat points array
 const float beat_points[] = {
     0.000000, 0.239456, 0.595011, 0.904127, 1.905488, 2.863311, 3.649887,
