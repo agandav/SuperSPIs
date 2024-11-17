@@ -48,6 +48,22 @@ uint32_t note_timing[LED_MATRIX_WIDTH];             // Array to track expected t
 volatile uint8_t missed_notes = 0;
 volatile uint32_t msTicks = 0;                      // Millisecond tick counter
 
+//===========================================================================
+// 34-entry buffer to be copied into SPI1.
+// Each element is a 16-bit value that is either character data or a command.
+// Element 0 is the command to set the cursor to the first position of line 1.
+// The next 16 elements are 16 characters.
+// Element 17 is the command to set the cursor to the first position of line 2.
+//===========================================================================
+uint16_t display[34] = {
+        0x002, // Command to set the cursor at the first position line 1
+        0x200+'S', 0x200+'C', 0x200+'O', 0x200+'R', 0x200+'E', + 0x200+' ', 0x200+':', 0x200+' ',
+        0x200+'5', 0x200+'0', 0x200+'0', 0x200+'0', + 0x200+'0', 0x200+' ', 0x200+' ', 0x200+' ',
+        0x0c0, // Command to set the cursor at the first position line 2
+        0x200+'G', 0x200+'o', 0x200+'o', 0x200+'d', 0x200+' ', + 0x200+'g', 0x200+'a', 0x200+'m',
+        0x200+'e', 0x200+'!', 0x200+' ', 0x200+' ', + 0x200+' ', 0x200+' ', 0x200+' ', 0x200+' ',
+};
+
 // SysTick Handler to increment msTicks
 void SysTick_Handler(void) {
     msTicks++;
@@ -83,6 +99,8 @@ uint16_t I2C_EEPROM_Read_HighScore(void);
 void I2C_EEPROM_Write_HighScore(uint16_t score);
 void Display_High_Score(void);
 
+int row;
+
 
 // Main Function
 int main(void) {
@@ -91,25 +109,19 @@ int main(void) {
 
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
-    initc();
     // DAC_Audio_Init();  // Initialize DAC
     // I2C_Init();  // Initialize I2C for EEPROM/OLED
-    LED_Matrix_init();  // Initialize the GPIO for matrix (if needed)
 
-    GPIOB->BRR = A_PIN | B_PIN | C_PIN | D_PIN ;
-    GPIOB->BRR = OE_PIN | CLK_PIN | LAT_PIN;
-    for(int i = 0; i<64; i++){
-    sendBit(0,0,1);
-    }
-    latchData();
-    
-    
-    for(int i = 0; i<16; i++){
-    turnCol(i);
-    nano_wait(1000000000);
-    }
-    
-
+    //Initialize GPIO Matrix and TIM7 for switching rows
+    LED_Matrix_init();
+    setup_tim7();
+    //User Input GPIO initialization
+    USER_input_init();
+    // OLED SPI initialization
+    init_spi1();
+    spi1_init_oled();
+    spi1_setup_dma();
+    spi1_enable_dma();
 
     // Main loop
     // while (1) {
@@ -133,23 +145,50 @@ int main(void) {
     // }
 }
 
-void turnCol(uint8_t colnum){
-    if (colnum && 0x1){
-        GPIOB->BSRR = D_PIN;
+
+//-------------------------------
+// Timer 7 for Bit banging
+//-------------------------------
+
+void TIM7_IRQHandler(){
+  TIM7->SR &= ~TIM_SR_UIF;
+  row ++;
+  if (row>32) row = 0;
+    for(int i = 0; i<64; i++){
+        sendBit(1,0,1);
+    }    
+    GPIOB->BSRR |= OE_PIN;
+    changeRow(row);
+    latchData();
+    GPIOB->BRR |= OE_PIN;
+}
+
+void setup_tim7() {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM7EN;
+    TIM7->PSC = 480-1;
+    TIM7->ARR = 10-1;
+    TIM7->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1<<18);
+    TIM7->CR1 |= TIM_CR1_CEN;
+}
+
+void changeRow(uint8_t row){
+    if (row & 0x1){
+        GPIOB->BSRR = A_PIN;
     }else{
-        GPIOB->BRR = D_PIN ;
+        GPIOB->BRR = A_PIN ;
     }
-    if (colnum && 0x2){
-        GPIOB->BSRR = D_PIN;
+    if (row & 0x2){
+        GPIOB->BSRR = B_PIN;
     }else{
-        GPIOB->BRR = D_PIN ;
+        GPIOB->BRR = B_PIN ;
     }
-    if (colnum && 0x4){
-        GPIOB->BSRR = D_PIN;
+    if (row & 0x4){
+        GPIOB->BSRR = C_PIN;
     }else{
-        GPIOB->BRR = D_PIN ;
+        GPIOB->BRR = C_PIN ;
     }
-    if (colnum && 0x8){
+    if (row & 0x8){
         GPIOB->BSRR = D_PIN;
     }else{
         GPIOB->BRR = D_PIN ;
@@ -157,12 +196,7 @@ void turnCol(uint8_t colnum){
 
 }
 
-// System Clock Configuration
-//void SystemClock_Config(void) {
-    // Configure system clock based on STM32 model
-//}
-
-void initc(void) {
+void USER_input_init(void) {
     // Only enable port C for the keypad
     RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
     GPIOC->MODER &= 0xfffffff0;
@@ -180,6 +214,11 @@ void LED_Matrix_init() {
                     | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0 | GPIO_MODER_MODER10_0 | GPIO_MODER_MODER11_0
                     | GPIO_MODER_MODER12_0);
     GPIOB->OSPEEDR |= 0xFFFFFFFF;
+    GPIOB->BRR = A_PIN | B_PIN | C_PIN | D_PIN ;
+    GPIOB->BRR = CLK_PIN;
+    GPIOB->BRR = LAT_PIN;
+    GPIOB->BRR = OE_PIN;
+    row = 0;
 }
 
 
@@ -289,51 +328,36 @@ void USART3_8_IRQHandler(void) {
     }
 }
 
-// Send bit to LED matrix
+//===========================================================================
+// BIT banging LED Matrix
+//===========================================================================
 // Send bit to LED matrix
 void sendBit(uint8_t red, uint8_t green, uint8_t blue) {
-    if (red) {
+    if (red==1) {
         GPIOB->BSRR = R1_PIN | R2_PIN ;
     } else {
         GPIOB->BRR = R1_PIN | R2_PIN;
     }
 
-    if (green) {
+    if (green==1) {
         GPIOB->BSRR = G1_PIN | G2_PIN;
     } else {
         GPIOB->BRR = G1_PIN | G2_PIN;
     }
 
-    if (blue) {
+    if (blue==1) {
         GPIOB->BSRR = B1_PIN | B2_PIN;
     } else {
         GPIOB->BRR = B1_PIN | B2_PIN;
     }
-    GPIOA->BSRR = CLK_PIN;  // Set CLK high
-    nano_wait(10000);
-    GPIOA->BRR = CLK_PIN;   // Set CLK low
+    GPIOB->BSRR = CLK_PIN;  // Set CLK high
+    GPIOB->BRR = CLK_PIN;   // Set CLK low
 }
 
 // Pulse the latch line
 void latchData(void) {
-    GPIOA->BSRR = LAT_PIN; // Set LAT high
-    nano_wait(1000);
-    GPIOA->BRR = LAT_PIN;  // Set LAT low
-}
-
-// Update matrix
-void updateMatrix(uint8_t *framebuffer, size_t size) {
-    GPIOA->BSRR = OE_PIN; // Disable the display during update (OE high)
-
-    for (size_t i = 0; i < size; i++) {
-        uint8_t red = framebuffer[i] & 0xFF;
-        uint8_t green = (framebuffer[i] >> 8) & 0xFF;
-        uint8_t blue = (framebuffer[i] >> 16) & 0xFF;
-        sendBit(red, green, blue);
-    }
-
-    latchData(); // Latch the data to the matrix
-    GPIOA->BRR = OE_PIN;   // Enable the display (OE low)
+    GPIOB->BSRR = LAT_PIN; // Set LAT high
+    GPIOB->BRR = LAT_PIN;  // Set LAT low
 }
 
 // Update LED Matrix to display falling notes
@@ -369,23 +393,120 @@ void LED_Matrix_Update(void) {
     }
 }  
 
+//===========================================================================
+// SPI OLED Display
+//===========================================================================
+void init_spi1() {
 
+    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+    GPIOA->MODER &= ~GPIO_MODER_MODER15 & ~GPIO_MODER_MODER5 & ~GPIO_MODER_MODER7 ;
+    GPIOA->MODER |= GPIO_MODER_MODER15_1 | GPIO_MODER_MODER5_1 | GPIO_MODER_MODER7_1 ;
 
-/* int __io_putchar(int ch) {
-    // Implement this based on your UART configuration, for example:
-    ITM_SendChar(ch);
-    return ch;
+    GPIOA->AFR[0] &= ~GPIO_AFRL_AFRL5;
+    GPIOA->AFR[0] &= ~GPIO_AFRL_AFRL7;
+    GPIOA->AFR[1] &= ~GPIO_AFRH_AFRH7;
+
+    SPI1->CR1 &= ~SPI_CR1_SPE;
+    SPI1->CR1 |= SPI_CR1_BR;
+    SPI1->CR1 |= SPI_CR1_MSTR;
+    SPI1->CR2 = SPI_CR2_DS_0 | SPI_CR2_DS_3; 
+    SPI1->CR2 |= SPI_CR2_SSOE | SPI_CR2_NSSP | SPI_CR2_TXDMAEN;
+    SPI1->CR1 |= SPI_CR1_SPE;
 }
-*/
-// Initialize GPIO Pins for Button Inputs
-void initButton(void) {
-    // Enable clock for GPIOB
-    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
-
-    // Configure BUTTON_PIN as input
-    GPIOB->MODER &= ~GPIO_MODER_MODER4_Msk; // Input mode
-    GPIOB->PUPDR |= GPIO_PUPDR_PUPDR4_0;   // Pull-up
+void spi_cmd(unsigned int data) {
+    while((SPI1->SR & SPI_SR_TXE) == 0); // wait for the transmit buffer to be empty
+    SPI1->DR = data; 
 }
+void spi_data(unsigned int data) {
+    spi_cmd(data | 0x200);   
+}
+void spi1_init_oled() {
+    nano_wait(1000000);
+    spi_cmd(0x38);
+    spi_cmd(0x08);
+    spi_cmd(0x01);
+    nano_wait(2000000);
+    spi_cmd(0x06);
+    spi_cmd(0x02);
+    spi_cmd(0x0c);
+    
+}
+void spi1_display1(const char *string) {
+    spi_cmd(0x02);
+    while(*string != '\0'){
+        spi_data(*string);
+        string++;
+    }    
+
+}
+void spi1_display2(const char *string) {
+    spi_cmd(0xc0);
+    while(*string != '\0'){
+        spi_data(*string);
+        string++;
+    }
+}
+
+//===========================================================================
+// Configure the proper DMA channel to be triggered by SPI1_TX.
+// Set the SPI1 peripheral to trigger a DMA when the transmitter is empty.
+//===========================================================================
+void spi1_setup_dma(void) {
+    RCC->AHBENR |= RCC_AHBENR_DMAEN; //Clock enable
+
+    DMA1_Channel3->CCR &= ~0X00000001; // Disable channel
+    DMA1_Channel3->CMAR = (uint32_t)&display; //Sending address
+    DMA1_Channel3->CPAR = (uint32_t)&(SPI1->DR); //Receiving adress
+    DMA1_Channel3->CNDTR = 0x00000022; //Number of data to be transferred (CDNTR)
+    DMA1_Channel3->CCR |= 0x00000080; //Memory Increment (MINC)
+    DMA1_Channel3->CCR |= 0x00000010; //Direction (DIR)
+    DMA1_Channel3->CCR |= 0x00000500; //Memory Size (MSIZE) and Peripheral Size (PSIZE)
+    DMA1_Channel3->CCR |= 0x00000020; //Circular operation (CIR)
+}
+
+//===========================================================================
+// Enable the DMA channel triggered by SPI1_TX.
+//===========================================================================
+void spi1_enable_dma(void) {
+    SPI1->CR2 |= SPI_CR2_TXEIE;
+    DMA1_Channel3->CCR |= 0X00000001; // Enable channel
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 int isButtonPressed(void) {
