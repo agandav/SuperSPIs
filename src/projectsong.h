@@ -117,3 +117,86 @@ extern const unsigned int num_beat_points;
 //                     // Move the x position to the next column, wrap if necessary
 //                     current_x_position = (current_x_position + 1) % LED_MATRIX_WIDTH;
 //                 }
+
+
+
+// Dude i fogot we said we would have audio feedback for hit and misses
+
+    //update these if needed:
+        //   void init_tim6(void) {
+         // RCC->APB1ENR |= RCC_APB1ENR_TIM6EN; // Enable Timer 6 clock
+        // TIM6->PSC = 48 - 1;                 // Set prescaler to divide system clock to 1 MHz
+        // TIM6->ARR = 1000 - 1;               // Set ARR to generate an interrupt at 1 kHz
+        // TIM6->DIER |= TIM_DIER_UIE;         // Enable update interrupt
+        // NVIC->ISER[0] = (1 << 17);          // Enable Timer 6 interrupt in NVIC
+        // TIM6->CR1 |= TIM_CR1_CEN;           // Enable Timer 6
+        // }
+
+        // void TIM6_DAC_IRQHandler(void) {
+        // TIM6->SR &= ~TIM_SR_UIF; // Clear the interrupt flag
+
+        // static int phase = 0;
+        // static int step = 0;
+
+        // if (step == 0) {
+        //     return;  // No tone is currently playing
+        // }
+
+        // phase += step;
+        // if (phase >= 1000) {
+        //     phase -= 1000; // Wrap phase around for sine wave calculation
+        // }
+
+        // // Simple sine wave approximation
+        // int amplitude = 2048 + (int)(2048 * sin(2 * M_PI * phase / 1000));
+        // DAC->DHR12R1 = amplitude; // Output to DAC
+        // }
+
+
+     //   hit or miss sounds
+        //     void play_hit_sound(void) {
+        //     set_sound_frequency(880);  // Set a high frequency for hits
+        //     delay(100);                // Play the sound for 100 ms
+        //     stop_sound();              // Stop the sound after duration
+        // }
+
+        // void play_miss_sound(void) {
+        //     set_sound_frequency(440);  // Set a lower frequency for misses
+        //     delay(100);                // Play the sound for 100 ms
+        //     stop_sound();              // Stop the sound after duration
+        // }
+
+        // void set_sound_frequency(int frequency) {
+        //     step = (frequency * 1000 / 1000) * (1 << 16);
+        // }
+
+        // void stop_sound(void) {
+        //     step = 0; // Stop generating any sound
+        // }
+
+
+          //Modify detect note hit
+              //void Detect_Note_Hit(uint32_t current_time) {
+              //     for (int i = 0; i < LED_MATRIX_WIDTH; i++) {
+              //     if (framebuffer[i] >= LED_MATRIX_HEIGHT - 1) { // Note reached bottom
+              //         if ((BUTTON_PORT->IDR & BUTTON_PIN) == 0) {  // Button pressed (active low)
+              //             int timing_difference = abs((int)(current_time - note_timing[i]));
+              //             if (timing_difference <= TIMING_WINDOW) {
+              //                 score += 10;  // Perfect hit
+              //                 play_hit_sound();  // Play hit sound
+              //             } else if (timing_difference <= TIMING_WINDOW * 2) {
+              //                 score += 5;  // Good hit
+              //                 play_hit_sound();  // Play hit sound
+              //             } else {
+              //                 score += 2;  // Okay hit
+              //                 play_hit_sound();  // Play hit sound
+              //             }
+              //         } else {
+              //             play_miss_sound();   // Play miss sound
+              //             missed_notes++;
+              //         }
+              //         framebuffer[i] = 0;    // Reset note position
+              //     }
+              // }
+//}
+
