@@ -58,6 +58,7 @@
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "CodeGPT.apiKey": "CodeGPT Plus Beta",
   "files.associations": {
-    "stm32f0xx.h": "c"
+    "stm32f0xx.h": "c",
+    "projectsong.h": "c"
   }
 }
