@@ -18,7 +18,7 @@
 #define I2C_TIMING 0x00B01A4B            // Timing for 400kHz with 48MHz clock
 #define TIMING_WINDOW 10                  // Timing window (in ms) for scoring
 #define TARGET_POSITION 0                // Replace with desired target position for the note
-#define MAX_MISSES 5                     // Maximum number of missed notes allowed
+#define MAX_MISSES 10                     // Maximum number of missed notes allowed
 #define M_PI 3.1415
 // Pin definitions for RGB LED matrix
 #define B2_PIN (1 << 7)
@@ -51,7 +51,7 @@ uint8_t blockColors[4] = {6, 5, 4, 7};
 // Game variables
 int score = 0;
 volatile uint32_t msTicks = 0;                      // Millisecond tick counter
-// int g_miss, g_hit;
+int g_miss, g_hit;
 volatile int missed_notes;
 
 
@@ -88,10 +88,8 @@ void setup_bb(void);
 void init_usart5(void);
 void initc(void);
 void initb(void);
-void LED_Matrix_Update(void);
 void sendRGB1(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
-void updateMatrix(uint8_t *framebuffer, size_t size);
 void initButton(void);
 int isButtonPressed(void);
 void checkButtonHit(uint8_t notePosition);
@@ -160,57 +158,40 @@ int main(void) {
     // setPixel(28, 16, 1);
     LED_Matrix_init();
     setup_tim7();
-    // for(;;){
-    //     for(int i = 0; i<64; i++){
-    //     sendRGB1(1,0,0);
-    //     sendRGB2(1,0,0);
-    //     GPIOB->BSRR = CLK_PIN;  // Set CLK high
-    //     GPIOB->BRR = CLK_PIN;   // Set CLK low
-    // }    
-
-    // GPIOB->BSRR |= OE_PIN;
-    // changeRow(row);
-    // row ++;
-    // if (row > 16) {
-    //     row = 0;
-    // }
-    // latchData();
-    // GPIOB->BRR |= OE_PIN;
-    // }
     setup_tim14();
     #endif
 
 
-    // while(1) {
-    //     // printf("Missed notes: %d", missed_notes);
-    //     if(missed_notes >= 5) {
-    //         printf("into missed notes if");
-    //         // Disable all interrupts
-    //         NVIC_DisableIRQ(EXTI0_1_IRQn);    // Button interrupts
-    //         NVIC_DisableIRQ(EXTI2_3_IRQn);
-    //         NVIC_DisableIRQ(EXTI4_15_IRQn);
+    while(1) {
+        // printf("Missed notes: %d", missed_notes);
+        if(missed_notes >= MAX_MISSES) {
+            printf("into missed notes if");
+            // Disable all interrupts
+            NVIC_DisableIRQ(EXTI0_1_IRQn);    // Button interrupts
+            NVIC_DisableIRQ(EXTI2_3_IRQn);
+            NVIC_DisableIRQ(EXTI4_15_IRQn);
             
-    //         // Disable all timers
-    //         TIM2->CR1 &= ~TIM_CR1_CEN;  // SPI timer
-    //         TIM6->CR1 &= ~TIM_CR1_CEN;  // DAC timer
-    //         TIM7->CR1 &= ~TIM_CR1_CEN;  // LED Matrix timer
-    //         TIM14->CR1 &= ~TIM_CR1_CEN; // Other LED timer
+            // Disable all timers
+            TIM2->CR1 &= ~TIM_CR1_CEN;  // SPI timer
+            TIM6->CR1 &= ~TIM_CR1_CEN;  // DAC timer
+            TIM7->CR1 &= ~TIM_CR1_CEN;  // LED Matrix timer
+            TIM14->CR1 &= ~TIM_CR1_CEN; // Other LED timer
             
-    //         // Reset game variables
-    //         missed_notes = 0;
+            // Reset game variables
+            missed_notes = 0;
             
-    //         // Re-enable all interrupts
-    //         // NVIC_EnableIRQ(EXTI0_1_IRQn);
-    //         // NVIC_EnableIRQ(EXTI2_3_IRQn);
-    //         // NVIC_EnableIRQ(EXTI4_15_IRQn);
+            // Re-enable all interrupts
+            // NVIC_EnableIRQ(EXTI0_1_IRQn);
+            // NVIC_EnableIRQ(EXTI2_3_IRQn);
+            // NVIC_EnableIRQ(EXTI4_15_IRQn);
             
-    //         // Re-enable all timers
-    //         // TIM2->CR1 |= TIM_CR1_CEN;
-    //         // TIM6->CR1 |= TIM_CR1_CEN;
-    //         // TIM7->CR1 |= TIM_CR1_CEN;
-    //         // TIM14->CR1 |= TIM_CR1_CEN;
-    //     }
-    // }
+            // Re-enable all timers
+            // TIM2->CR1 |= TIM_CR1_CEN;
+            // TIM6->CR1 |= TIM_CR1_CEN;
+            // TIM7->CR1 |= TIM_CR1_CEN;
+            // TIM14->CR1 |= TIM_CR1_CEN;
+        }
+    }
 
 
 }
@@ -275,8 +256,8 @@ void TIM14_IRQHandler(){
 
 void setup_tim14() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
-    TIM14->PSC = 4800-1;
-    TIM14->ARR = 10-1;
+    TIM14->PSC = 480-1;
+    TIM14->ARR = 100-1;
     TIM14->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<19);
     TIM14->CR1 |= TIM_CR1_CEN;
@@ -471,14 +452,14 @@ void EXTI0_1_IRQHandler(){
     if (block_position >= 55 && color_index==0){
         score = score + 50;
         printf("Hit!\n");
-        // g_hit = 1;
-        // g_miss = 0;
+        g_hit = 1;
+        g_miss = 0;
     } else{
         missed_notes++;
         printf("Missed!\n");
         printf("%d\n", missed_notes);    
-        // g_hit = 0;
-        // g_miss = 1;
+        g_hit = 0;
+        g_miss = 1;
     }
     
     togglexn(GPIOC, 6);
@@ -491,14 +472,14 @@ void EXTI2_3_IRQHandler(){
     if (block_position >= 55 && color_index==1){
         score = score + 50;
         printf("Hit!\n");    
-        // g_hit = 1;
-        // g_miss = 0;
+        g_hit = 1;
+        g_miss = 0;
     } else{
         missed_notes++;
         printf("Missed!\n");
         printf("%d\n", missed_notes);  
-        // g_hit = 0;
-        // g_miss = 1;  
+        g_hit = 0;
+        g_miss = 1;  
     }
 
         EXTI->PR = EXTI_PR_PR2;  // Clear the interrupt pending flag for EXTI line 2
@@ -510,14 +491,14 @@ void EXTI2_3_IRQHandler(){
         if (block_position >= 55 && color_index==2){
             score = score + 50;
             printf("Hit!\n");
-            // g_hit = 1;
-            // g_miss = 0;      
+            g_hit = 1;
+            g_miss = 0;      
         } else{
             missed_notes++;
             printf("Missed!\n"); 
             printf("%d\n", missed_notes);
-            // g_hit = 0;
-            // g_miss = 1;   
+            g_hit = 0;
+            g_miss = 1;   
         }
         
         EXTI->PR = EXTI_PR_PR3;  // Clear the interrupt pending flag for EXTI line 3
@@ -530,14 +511,14 @@ void EXTI4_15_IRQHandler(){
     if (block_position >= 55 && color_index==3){
                 score = score + 50;
                 printf("Hit!\n");    
-                // g_hit = 1;
-                // g_miss=0;
+                g_hit = 1;
+                g_miss=0;
             } else{
                 missed_notes++;
                 printf("Missed!\n");
             printf("%d\n", missed_notes);
-                // g_hit = 0;
-                // g_miss = 1;    
+                g_hit = 0;
+                g_miss = 1;    
             }
             
     togglexn(GPIOC, 9);
@@ -847,8 +828,8 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
     }
 
     // Modify the second line message based on hit or miss flags
-    const int line2StartIndex = 17; // Start index for line 2 in the display array
-    if (hit) {
+    const int line2StartIndex = 18; // Start index for line 2 in the display array
+    if (hit==1) {
         display[line2StartIndex + 0] = 0x200 + 'H';
         display[line2StartIndex + 1] = 0x200 + 'I';
         display[line2StartIndex + 2] = 0x200 + 'T';
@@ -857,7 +838,10 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
         display[line2StartIndex + 5] = 0x200 + ' ';
         display[line2StartIndex + 6] = 0x200 + ' ';
         display[line2StartIndex + 7] = 0x200 + ' ';
-    } else if (miss) {
+        display[line2StartIndex + 8] = 0x200 + ' ';
+        display[line2StartIndex + 9] = 0x200 + ' ';
+        
+    } else if (miss==1) {
         display[line2StartIndex + 0] = 0x200 + 'M';
         display[line2StartIndex + 1] = 0x200 + 'I';
         display[line2StartIndex + 2] = 0x200 + 'S';
@@ -866,6 +850,8 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
         display[line2StartIndex + 5] = 0x200 + ' ';
         display[line2StartIndex + 6] = 0x200 + ' ';
         display[line2StartIndex + 7] = 0x200 + ' ';
+        display[line2StartIndex + 8] = 0x200 + ' ';
+        display[line2StartIndex + 9] = 0x200 + ' ';
     } else {
         // Default "Good game" message
         display[line2StartIndex + 0] = 0x200 + 'G';
@@ -887,8 +873,8 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
 //============================================================================
 void TIM2_IRQHandler(void){
     TIM2->SR &= ~TIM_SR_UIF;
-    updateScore(score);
-    // updateDisplay(score, g_miss, g_hit);
+    // updateScore(score);
+    updateDisplay(score, g_hit, g_miss);
     // printf("Score: %d\n", score);
 }
 
