@@ -44,12 +44,13 @@ volatile int portc;
 volatile int block_position;
 volatile int color_index;
 // color 0 = black, 1 = blue, 2 = green, 3 = cyan, 4 = red, 5 = magenta, 6 = yellow, 7 = white
-uint8_t blockColors[4] = {6, 5, 4, 7};
+uint8_t blockColors[4] = {1, 2, 4, 7};
 
-
+#define EEPROM_ADDR 0x57
+#define HIGH_SCORE_ADDR 0x64
 
 // Game variables
-int score = 0;
+int g_score = 0;
 volatile uint32_t msTicks = 0;                      // Millisecond tick counter
 int g_miss, g_hit;
 volatile int missed_notes;
@@ -102,8 +103,6 @@ void Play_Audio_Track(void);
 void Detect_Note_Hit(uint32_t current_time);
 void Game_Reset(void);
 int Game_Over(void);
-uint16_t I2C_EEPROM_Read_HighScore(void);
-void I2C_EEPROM_Write_HighScore(uint16_t score);
 void Display_High_Score(void);
 void setup_tim7();
 void changeRow(uint8_t row);
@@ -115,7 +114,7 @@ void USER_input_init();
 int main(void) {
     internal_clock();
 
-    missed_notes=0;
+
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
     enable_tty_interrupt();
@@ -128,6 +127,7 @@ int main(void) {
     #define SPI_subsystem
     #define DAC_subsystem
     #define LED_Matrix_subsystem
+    #define Highscore_subsystem
     
     //User Input GPIO initialization
     #if defined(USER_input_subsystem)
@@ -154,18 +154,34 @@ int main(void) {
     //Initialize GPIO Matrix and TIM7 for switching rows
     #if defined(LED_Matrix_subsystem)
     clearFramebuffer();
-    // RedFramebuffer();
-    // setPixel(28, 16, 1);
     LED_Matrix_init();
     setup_tim7();
+    // setup_tim3();
     setup_tim14();
     #endif
+    missed_notes=0;
 
+    #if defined (Highscore_subsystem)
+    i2c_ports();
+    I2C_HighScore_Init();
+    // printf("I2C Command Shell\n");
+    // printf("This is a simple shell that allows you to write to or read from the I2C EEPROM at %ld.\n", EEPROM_ADDR);
+    // for(;;) {
+    //     printf("\n> ");
+    //     char line[100];
+    //     fgets(line, 99, stdin);
+    //     line[99] = '\0';
+    //     int len = strlen(line);
+    //     if (line[len-1] == '\n')
+    //         line[len-1] = '\0';
+    //     parse_command(line);
+    // }
+    #endif   
 
-    while(1) {
+     while(1) {
         // printf("Missed notes: %d", missed_notes);
         if(missed_notes >= MAX_MISSES) {
-            printf("into missed notes if");
+            updateHighScore(g_score);
             // Disable all interrupts
             NVIC_DisableIRQ(EXTI0_1_IRQn);    // Button interrupts
             NVIC_DisableIRQ(EXTI2_3_IRQn);
@@ -224,6 +240,21 @@ void TIM7_IRQHandler(){
     }
 }
 
+void TIM3_IRQHandler(){
+    
+    TIM3->SR &= ~TIM_SR_UIF;
+    clearFramebuffer();
+    setBlock(block_position, 0, 8, 32, blockColors[color_index]);
+    block_position++;
+    if(block_position>64){
+        block_position = 0;
+        color_index++;
+        if(color_index>=3){
+            color_index = 0;
+        }
+    }
+}
+
 
 void TIM14_IRQHandler(){
     TIM14->SR &= ~TIM_SR_UIF; 
@@ -266,11 +297,21 @@ void setup_tim14() {
 void setup_tim7() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM7EN;
     TIM7->PSC = 4800-1;
-    TIM7->ARR = 500-1;
+    TIM7->ARR = 50-1;
     TIM7->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<18);
     TIM7->CR1 |= TIM_CR1_CEN;
 }
+
+void setup_tim3() {
+    RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+    TIM3->PSC = 4800-1;
+    TIM3->ARR = 500-1;
+    TIM3->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1<<16);
+    TIM3->CR1 |= TIM_CR1_CEN;
+}
+
 
 void changeRow(uint8_t row){
     if (row & 0x1){
@@ -450,7 +491,7 @@ void EXTI0_1_IRQHandler(){
     EXTI->PR = EXTI_PR_PR0;
 
     if (block_position >= 55 && color_index==0){
-        score = score + 50;
+        g_score = g_score + 50;
         printf("Hit!\n");
         g_hit = 1;
         g_miss = 0;
@@ -470,7 +511,7 @@ void EXTI2_3_IRQHandler(){
         togglexn(GPIOC, 7);      // Toggle pin PC7
 
     if (block_position >= 55 && color_index==1){
-        score = score + 50;
+        g_score = g_score + 50;
         printf("Hit!\n");    
         g_hit = 1;
         g_miss = 0;
@@ -489,7 +530,7 @@ void EXTI2_3_IRQHandler(){
     if (EXTI->PR & EXTI_PR_PR3) {
         togglexn(GPIOC, 8); // Toggle pin PC8
         if (block_position >= 55 && color_index==2){
-            score = score + 50;
+            g_score = g_score + 50;
             printf("Hit!\n");
             g_hit = 1;
             g_miss = 0;      
@@ -509,7 +550,7 @@ void EXTI4_15_IRQHandler(){
     EXTI->PR = EXTI_PR_PR4;
 
     if (block_position >= 55 && color_index==3){
-                score = score + 50;
+                g_score = g_score + 50;
                 printf("Hit!\n");    
                 g_hit = 1;
                 g_miss=0;
@@ -874,7 +915,7 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
 void TIM2_IRQHandler(void){
     TIM2->SR &= ~TIM_SR_UIF;
     // updateScore(score);
-    updateDisplay(score, g_hit, g_miss);
+    updateDisplay(g_score, g_hit, g_miss);
     // printf("Score: %d\n", score);
 }
 
@@ -951,7 +992,7 @@ void TIM6_DAC_IRQHandler(void){// Implemented for music
 
     offset0++;
     if (offset0 >= 209273) {
-        offset0 = 0; // Loop audio data
+        offset0 = 120000; // Loop audio data
     }
 
     int samp = projectsong_audio_data[offset0]; 
@@ -968,4 +1009,321 @@ void init_tim6(void) {
     NVIC->ISER[0] = (1<<17);
     TIM6->CR1 |= TIM_CR1_CEN;
     TIM6->CR2 |= TIM_CR2_MMS_1;
+}
+
+#define EEPROM_ADDR 0x57
+#define HIGH_SCORE_ADDR 0x64
+
+void i2c_ports(void) 
+{
+    // Enable GPIOA clock
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
+    // Set PA9 (SCL) and PA10 (SDA) to alternate function mode
+    GPIOA->MODER &= ~((3 << (9 * 2)) | (3 << (10 * 2)));  // Clear bits
+    GPIOA->MODER |= (2 << (9 * 2)) | (2 << (10 * 2));     // Set to AF mode
+
+    // Set alternate function to I2C1 (AF4) for PA9 and PA10
+    GPIOA->AFR[1] &= ~((0xF << (1 * 4)) | (0xF << (2 * 4)));  // Clear bits
+    GPIOA->AFR[1] |= (4 << (1 * 4)) | (4 << (2 * 4));         // Set AF4
+
+}
+
+void I2C_HighScore_Init(void) {
+    // Enable I2C1 clock
+    RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
+
+    // Disable I2C1
+    I2C1->CR1 &= ~I2C_CR1_PE;
+
+    // Configure filters and interrupts
+    I2C1->CR1 |= I2C_CR1_ANFOFF;     // Disable analog filter
+    I2C1->CR1 |= I2C_CR1_ERRIE;      // Enable error interrupts
+    I2C1->CR1 |= I2C_CR1_NOSTRETCH;  // Disable clock stretching
+
+    // Configure timing for 400 kHz Fast Mode (assuming 48 MHz clock)
+    I2C1->TIMINGR = 0x00B01A4B; // Recommended timing for 400kHz
+
+    // Set to 7-bit addressing mode
+    I2C1->CR2 &= ~I2C_CR2_ADD10;
+
+    // Enable I2C1
+    I2C1->CR1 |= I2C_CR1_PE;
+}
+
+// Wait for I2C to be idle
+void I2C_HighScore_WaitIdle(void) {
+    while (I2C1->ISR & I2C_ISR_BUSY) {}
+}
+
+// Clear NACK flag
+void I2C_HighScore_ClearNACK(void) {
+    I2C1->ICR |= I2C_ICR_NACKCF;
+}
+
+// Check for NACK
+int I2C_HighScore_CheckNACK(void) {
+    return (I2C1->ISR & I2C_ISR_NACKF);
+}
+
+// Write High Score to EEPROM
+int I2C_EEPROM_Write_HighScore(uint32_t score) {
+    uint8_t data[4];
+    
+    // Clamp score to max 5 digits
+    if (score > 99999) {
+        score = 99999;
+    }
+    
+    // Prepare data: address high byte, address low byte, score
+    data[0] = (HIGH_SCORE_ADDR >> 8) & 0xFF;   // High byte of address
+    data[1] = HIGH_SCORE_ADDR & 0xFF;          // Low byte of address
+    data[2] = score & 0xFF;                    // Score (assuming 8-bit for simplicity)
+    data[3] = (score & (0xFF<<8))>>8;                    // Score (assuming 8-bit for simplicity)
+
+    I2C_HighScore_WaitIdle();
+
+    // Start transmission
+    uint32_t tmpreg = I2C1->CR2;
+    tmpreg &= ~I2C_CR2_SADD;
+    tmpreg &= ~I2C_CR2_NBYTES;
+    tmpreg &= ~I2C_CR2_RD_WRN;
+    tmpreg |= (EEPROM_ADDR << 1);
+    tmpreg |= (4 << 16);  // 3 bytes to send
+    tmpreg |= I2C_CR2_START;
+    I2C1->CR2 = tmpreg;
+
+    // Send data
+    for (int i = 0; i < 4; i++) {
+        // Wait for TX buffer to be empty
+        while (!(I2C1->ISR & I2C_ISR_TXIS)) {
+            if (I2C_HighScore_CheckNACK()) {
+                I2C_HighScore_ClearNACK();
+                return -1;
+            }
+        }
+        I2C1->TXDR = data[i];
+    }
+
+    // Wait for transmission complete
+    while (!(I2C1->ISR & I2C_ISR_TC)) {
+        if (I2C_HighScore_CheckNACK()) {
+            I2C_HighScore_ClearNACK();
+            return -1;
+        }
+    }
+
+    // Send stop condition
+    I2C1->CR2 |= I2C_CR2_STOP;
+    
+    // Wait for stop to be generated
+    while (I2C1->CR2 & I2C_CR2_STOP) {}
+
+    return 0;
+}
+
+// Read High Score from EEPROM
+uint32_t I2C_EEPROM_Read_HighScore(void) {
+    uint8_t addr[2];
+    uint16_t score = 0;
+
+    // Prepare address bytes
+    addr[0] = (HIGH_SCORE_ADDR >> 8) & 0xFF;   // High byte of address
+    addr[1] = HIGH_SCORE_ADDR & 0xFF;          // Low byte of address
+
+    I2C_HighScore_WaitIdle();
+
+    // First, write the address to read from
+    uint32_t tmpreg = I2C1->CR2;
+    tmpreg &= ~I2C_CR2_SADD;
+    tmpreg &= ~I2C_CR2_NBYTES;
+    tmpreg &= ~I2C_CR2_RD_WRN;
+    tmpreg |= (EEPROM_ADDR << 1);
+    tmpreg |= (2 << 16);  // 2 address bytes
+    tmpreg |= I2C_CR2_START;
+    I2C1->CR2 = tmpreg;
+
+    // Send address bytes
+    for (int i = 0; i < 2; i++) {
+        while (!(I2C1->ISR & I2C_ISR_TXIS)) {
+            if (I2C_HighScore_CheckNACK()) {
+                I2C_HighScore_ClearNACK();
+                return 0;
+            }
+        }
+        I2C1->TXDR = addr[i];
+    }
+
+    // Wait for transmission complete
+    while (!(I2C1->ISR & I2C_ISR_TC)) {
+        if (I2C_HighScore_CheckNACK()) {
+            I2C_HighScore_ClearNACK();
+            return 0;
+        }
+    }
+
+    // Now read the score
+    tmpreg = I2C1->CR2;
+    tmpreg &= ~I2C_CR2_SADD;
+    tmpreg &= ~I2C_CR2_NBYTES;
+    tmpreg |= (EEPROM_ADDR << 1);
+    tmpreg |= (2 << 16);  // 1 byte to read
+    tmpreg |= I2C_CR2_RD_WRN;  // Read operation
+    tmpreg |= I2C_CR2_START;
+    I2C1->CR2 = tmpreg;
+
+    // Read the score
+    for(int i = 0; i < 2; i++){
+    while (!(I2C1->ISR & I2C_ISR_RXNE)) {
+        if (I2C_HighScore_CheckNACK()) {
+            I2C_HighScore_ClearNACK();
+            return 0;
+        }
+    }
+    if(i==0) score = I2C1->RXDR;
+    else score |= I2C1->RXDR <<8;
+    }
+    // Send stop condition
+    I2C1->CR2 |= I2C_CR2_STOP;
+    
+    // Wait for stop to be generated
+    while (I2C1->CR2 & I2C_CR2_STOP) {}
+
+    return score;
+}
+
+// Update High Score if current score is higher
+void Update_High_Score(uint32_t current_score) {
+    uint32_t high_score = I2C_EEPROM_Read_HighScore();
+    
+    if (current_score > high_score) {
+        I2C_EEPROM_Write_HighScore(current_score);
+    }
+}
+
+// Update score display on the OLED
+void update_score(uint32_t internal_score) {
+    // Indices for the score section in the display array
+    const int scoreStartIndex = 9;
+    const int scoreEndIndex = 13;
+
+    // Ensure score fits within the range (5 digits max)
+    if (internal_score > 99999) {
+        internal_score = 99999; // Clamp the score to the maximum displayable value
+    }
+
+    // Fill score digits into the display array
+    for (int i = scoreEndIndex; i >= scoreStartIndex; i--) {
+        display[i] = 0x200 + ('0' + (internal_score % 10)); // Extract the last digit and convert to display format
+        internal_score /= 10;
+    }
+
+    // Fill leading spaces if the score has fewer than 5 digits
+    for (int i = scoreStartIndex; i <= scoreEndIndex && internal_score == 0; i++) {
+        if (display[i] == 0x200) {
+            display[i] = 0x200 + ' ';
+        }
+    }
+
+    // Optionally update high score in EEPROM
+    Update_High_Score(internal_score);
+}
+
+// Initialization function to call in main
+void HighScore_System_Init(void) {
+    I2C_HighScore_Ports_Init();
+    I2C_HighScore_Init();
+}
+
+void writeHighScore(int argc, char* argv[]) {
+    if (argc != 2) {
+        printf("Usage: writehigh <score>\n");
+        printf("Example: writehigh 1000\n");
+        return;
+    }
+    
+    uint32_t score = atoi(argv[1]);
+    printf("Writing high score: %d\n", score);
+    
+    if (I2C_EEPROM_Write_HighScore(score) == 0) {
+        printf("High score written successfully\n");
+    } else {
+        printf("Error writing high score\n");
+    }
+}
+
+void readHighScore(int argc, char* argv[]) {
+    if (argc != 1) {
+        printf("Usage: readhigh\n");
+        return;
+    }
+    
+    uint32_t score = I2C_EEPROM_Read_HighScore();
+    printf("Current high score: %lu\n", score);
+}
+
+void updateHighScore(int argc, char* argv[]) {
+    if (argc != 2) {
+        printf("Usage: updatehigh <score>\n");
+        printf("Example: updatehigh 2000\n");
+        return;
+    }
+    
+    uint32_t new_score = atoi(argv[1]);
+    printf("Attempting to update high score with: %lu\n", new_score);
+    
+    uint32_t old_score = I2C_EEPROM_Read_HighScore();
+    printf("Previous high score: %lu\n", old_score);
+    
+    Update_High_Score(new_score);
+    
+    uint32_t current_score = I2C_EEPROM_Read_HighScore();
+    printf("New high score: %lu\n", current_score);
+}
+
+struct commands_t {
+    const char *cmd;
+    void      (*fn)(int argc, char *argv[]);
+};
+
+
+struct commands_t cmds[] = {
+    { "writehigh", writeHighScore },
+    { "readhigh", readHighScore },
+    { "updatehigh", updateHighScore }
+};
+
+
+void exec(int argc, char *argv[])
+{
+    for(int i=0; i<sizeof cmds/sizeof cmds[0]; i++)
+        if (strcmp(cmds[i].cmd, argv[0]) == 0) {
+            cmds[i].fn(argc, argv);
+            return;
+        }
+    printf("%s: No such command.\n", argv[0]);
+}
+
+void parse_command(char *c)
+{
+    char *argv[20];
+    int argc=0;
+    int skipspace=1;
+    for(; *c; c++) {
+        if (skipspace) {
+            if (*c != ' ' && *c != '\t') {
+                argv[argc++] = c;
+                skipspace = 0;
+            }
+        } else {
+            if (*c == ' ' || *c == '\t') {
+                *c = '\0';
+                skipspace=1;
+            }
+        }
+    }
+    if (argc > 0) {
+        argv[argc] = "";
+        exec(argc, argv);
+    }
 }
