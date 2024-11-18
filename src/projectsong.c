@@ -1,7 +1,6 @@
 #include "projectsong.h"
 
 // Define the full array and its length here
-const unsigned int projectsong_audio_data_len = 20;  // Replace with the actual length
 const unsigned char projectsong_audio_data[] = {
   0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0d, 0x0d, 0x0d, 0x0d,
   0x0c, 0x0c, 0x0c, 0x0b, 0x0b, 0x0a, 0x0a, 0x0a, 0x09, 0x08, 0x08, 0x07,
@@ -17446,7 +17445,7 @@ const unsigned char projectsong_audio_data[] = {
   0x1f, 0x20, 0x1f, 0x1f, 0x1f
 };
 #define SONG_LENGTH (sizeof(projectsong_audio_data) / sizeof(projectsong_audio_data[0]))
-
+const unsigned int projectsong_audio_data_len = sizeof(projectsong_audio_data) / sizeof(projectsong_audio_data[0]);
 // Define the beat points array
 const float beat_points[] = {
     0.000000, 0.239456, 0.595011, 0.904127, 1.905488, 2.863311, 3.649887,
