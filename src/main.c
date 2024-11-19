@@ -3,24 +3,25 @@
 #include "stdio.h"
 #include <math.h>   // for M_PI
 #include <stdint.h>
-// #include "whitestripes.h"
 #include <stdlib.h> // for abs()
 #include "tty.h"
 #include <projectsong.h>
 
 // Definitions for game parameters and hardware setup
-#define LED_MATRIX_WIDTH 64
-#define LED_MATRIX_HEIGHT 32
-#define NOTE_DROP_SPEED 5                // Speed of note fall in pixels per update
-#define OLED_ADDRESS 0x3C                // SOC1602A OLED I2C address
-#define EEPROM_AUDIO_ADDRESS 0x50        // EEPROM address for audio samples
-#define EEPROM_HIGH_SCORE_ADDRESS 0x52   // EEPROM address for high score
-#define I2C_TIMING 0x00B01A4B            // Timing for 400kHz with 48MHz clock
-#define TIMING_WINDOW 10                  // Timing window (in ms) for scoring
-#define TARGET_POSITION 0                // Replace with desired target position for the note
 #define MAX_MISSES 10                     // Maximum number of missed notes allowed
 #define M_PI 3.1415
-// Pin definitions for RGB LED matrix
+
+//Parameters RGB LED Matrix
+#define MATRIX_WIDTH 64
+#define MATRIX_HEIGHT 32
+#define FRAMEBUFFER_BYTES (MATRIX_WIDTH*MATRIX_HEIGHT/2)
+volatile uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 G1 B1]
+volatile int row;
+volatile int portc;
+volatile int block_position;
+volatile int color_index;
+// color 0 = black, 1 = blue, 2 = green, 3 = cyan, 4 = red, 5 = magenta, 6 = yellow, 7 = white
+uint8_t blockColors[4] = {1, 2, 4, 7};
 #define B2_PIN (1 << 7)
 #define R2_PIN (1 << 5)
 #define B1_PIN (1 << 3)
@@ -34,34 +35,32 @@
 #define C_PIN (1 << 10)
 #define A_PIN (1 << 11)
 #define LAT_PIN (1 << 12)
+#define M_PI 3.1415
+// Parameters for USART5 buffering
+#define FIFOSIZE 16
+char serfifo[FIFOSIZE];
+int seroffset = 0;
+uint16_t msg [8];
 
-#define MATRIX_WIDTH 64
-#define MATRIX_HEIGHT 32
-#define FRAMEBUFFER_BYTES (MATRIX_WIDTH*MATRIX_HEIGHT/2)
-uint8_t framebuffer[FRAMEBUFFER_BYTES]; // [0 0 R2 G2 B2 R1 G1 B1]
-volatile int row;
-volatile int portc;
-volatile int block_position;
-volatile int color_index;
-// color 0 = black, 1 = blue, 2 = green, 3 = cyan, 4 = red, 5 = magenta, 6 = yellow, 7 = white
-uint8_t blockColors[4] = {1, 2, 4, 7};
+// Parameters for the wavetable size and expected synthesis rate.
+#define N 1000
+#define RATE 20000
+short int wavetable[N];
+int step0 = 0;
+int offset0 = 160000;
+int current_offset = 0;
+int step1 = 0;
+int offset1 = 0;
+int samp = 0;
+    
 
+//Parameter I2C
 #define EEPROM_ADDR 0x57
 #define HIGH_SCORE_ADDR 0x64
-
-// Game variables
-int g_score = 0;
-volatile uint32_t msTicks = 0;                      // Millisecond tick counter
-int g_miss, g_hit;
-volatile int missed_notes;
-
+#define volume 1500
 
 //===========================================================================
-// 34-entry buffer to be copied into SPI1.
-// Each element is a 16-bit value that is either character data or a command.
-// Element 0 is the command to set the cursor to the first position of line 1.
-// The next 16 elements are 16 characters.
-// Element 17 is the command to set the cursor to the first position of line 2.
+// This is the 34-entry buffer to be copied into SPI1.
 //===========================================================================
 uint16_t display[34] = {
         0x002, // Command to set the cursor at the first position line 1
@@ -72,48 +71,28 @@ uint16_t display[34] = {
         0x200+'e', 0x200+'!', 0x200+' ', 0x200+' ', + 0x200+' ', 0x200+' ', 0x200+' ', 0x200+' ',
 };
 
-uint32_t volume = 2048;
+// Game variables
+int g_score = 0;
+volatile uint32_t msTicks = 0;                      // Millisecond tick counter
+int g_miss, g_hit;
+volatile int missed_notes;
 
-// Parameters for the wavetable size and expected synthesis rate.
-#define N 1000
-#define RATE 25050
-short int wavetable[N];
-int step0 = 0;
-int offset0 = 0;
-int step1 = 0;
-int offset1 = 0;
+volatile int game_over_state = 0;  // 0 = playing, 1 = game over
+volatile int restart_requested = 0;
 
 
-// Function Prototypes
-void setup_bb(void);
-void init_usart5(void);
-void initc(void);
-void initb(void);
 void sendRGB1(uint8_t red, uint8_t green, uint8_t blue);
 void latchData(void);
-void initButton(void);
-int isButtonPressed(void);
-void checkButtonHit(uint8_t notePosition);
-void DAC_Audio_Init(void);
-void Play_Note_Sound(int hit);
-void I2C_Init(void);
-void OLED_Display_Score_DMA(uint16_t score);
-void Start_Audio_DMA(void);
-void Play_Audio_Track(void);
-void Detect_Note_Hit(uint32_t current_time);
-void Game_Reset(void);
-int Game_Over(void);
-void Display_High_Score(void);
 void setup_tim7();
 void changeRow(uint8_t row);
 void USER_input_init();
 
-
+uint32_t I2C_EEPROM_Read_HighScore();
+    
 
 // Main Function
 int main(void) {
     internal_clock();
-
 
     // Initialize other peripherals
     init_usart5();  // Initialize USART5 for printf
@@ -142,6 +121,13 @@ int main(void) {
     spi1_enable_dma();
     init_tim2();
     #endif
+    //Initialize GPIO Matrix and TIM7 for switching rows
+    #if defined(LED_Matrix_subsystem)
+    clearFramebuffer();
+    LED_Matrix_init();
+    setup_tim3();
+    setup_tim14();
+    #endif
     //Setup DAC for music reproduction
     #if defined(DAC_subsystem)
     init_wavetable();
@@ -151,14 +137,8 @@ int main(void) {
     float f = 460.5;
     set_freq(0,f);
     #endif
-    //Initialize GPIO Matrix and TIM7 for switching rows
-    #if defined(LED_Matrix_subsystem)
-    clearFramebuffer();
-    LED_Matrix_init();
-    setup_tim7();
-    // setup_tim3();
-    setup_tim14();
-    #endif
+    
+
     missed_notes=0;
 
     #if defined (Highscore_subsystem)
@@ -178,35 +158,33 @@ int main(void) {
     // }
     #endif   
 
-     while(1) {
-        // printf("Missed notes: %d", missed_notes);
-        if(missed_notes >= MAX_MISSES) {
-            updateHighScore(g_score);
-            // Disable all interrupts
-            NVIC_DisableIRQ(EXTI0_1_IRQn);    // Button interrupts
-            NVIC_DisableIRQ(EXTI2_3_IRQn);
-            NVIC_DisableIRQ(EXTI4_15_IRQn);
-            
-            // Disable all timers
-            TIM2->CR1 &= ~TIM_CR1_CEN;  // SPI timer
-            TIM6->CR1 &= ~TIM_CR1_CEN;  // DAC timer
-            TIM7->CR1 &= ~TIM_CR1_CEN;  // LED Matrix timer
-            TIM14->CR1 &= ~TIM_CR1_CEN; // Other LED timer
-            
-            // Reset game variables
-            missed_notes = 0;
-            
-            // Re-enable all interrupts
-            // NVIC_EnableIRQ(EXTI0_1_IRQn);
-            // NVIC_EnableIRQ(EXTI2_3_IRQn);
-            // NVIC_EnableIRQ(EXTI4_15_IRQn);
-            
-            // Re-enable all timers
-            // TIM2->CR1 |= TIM_CR1_CEN;
-            // TIM6->CR1 |= TIM_CR1_CEN;
-            // TIM7->CR1 |= TIM_CR1_CEN;
-            // TIM14->CR1 |= TIM_CR1_CEN;
+    while(1) {
+    if(missed_notes >= MAX_MISSES) {
+        // Set game over state
+        game_over_state = 1;
+        
+        // Update high score
+        updateHighScore(g_score);
+        
+        // Disable timers
+        TIM2->CR1 &= ~TIM_CR1_CEN;
+        TIM6->CR1 &= ~TIM_CR1_CEN;
+        TIM7->CR1 &= ~TIM_CR1_CEN;
+        TIM14->CR1 &= ~TIM_CR1_CEN;  
+
+        
+
+        
+        // Wait for restart
+        while(!restart_requested) {
+            // Optional: Add any idle animations here
+        // Show game over sequence
+        displayGameOver(g_score);
         }
+        
+        // Reset game
+        reset_game();
+    }
     }
 
 
@@ -234,7 +212,7 @@ void TIM7_IRQHandler(){
     if(block_position>64){
         block_position = 0;
         color_index++;
-        if(color_index>=3){
+        if(color_index>=4){
             color_index = 0;
         }
     }
@@ -249,7 +227,7 @@ void TIM3_IRQHandler(){
     if(block_position>64){
         block_position = 0;
         color_index++;
-        if(color_index>=3){
+        if(color_index>4){
             color_index = 0;
         }
     }
@@ -297,7 +275,7 @@ void setup_tim14() {
 void setup_tim7() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM7EN;
     TIM7->PSC = 4800-1;
-    TIM7->ARR = 50-1;
+    TIM7->ARR = 500-1;
     TIM7->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<18);
     TIM7->CR1 |= TIM_CR1_CEN;
@@ -305,8 +283,8 @@ void setup_tim7() {
 
 void setup_tim3() {
     RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
-    TIM3->PSC = 4800-1;
-    TIM3->ARR = 500-1;
+    TIM3->PSC = 600-1;
+    TIM3->ARR = 1000-1;
     TIM3->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<16);
     TIM3->CR1 |= TIM_CR1_CEN;
@@ -337,38 +315,6 @@ void changeRow(uint8_t row){
 
 }
 
-void initFramebufferForX() {
-    // Clear the framebuffer
-    for (int i = 0; i < FRAMEBUFFER_BYTES; i++) {
-        framebuffer[i] = 0;
-    }
-
-    // Draw an "X" in the middle
-    for (int row = 0; row < MATRIX_HEIGHT; row++) {
-        int col1 = row;               // Top-left to bottom-right diagonal
-        int col2 = MATRIX_WIDTH - 1 - row; // Top-right to bottom-left diagonal
-
-        // Calculate the byte and bit positions for the pixels
-        int byteIndex1 = (row * MATRIX_WIDTH + col1) / 2;
-        int byteIndex2 = (row * MATRIX_WIDTH + col2) / 2;
-
-        int isFirstPixel1 = (col1 % 2 == 0);
-        int isFirstPixel2 = (col2 % 2 == 0);
-
-        // Set R1, G1, B1 for col1 and col2 to 1 to make the pixel white
-        if (isFirstPixel1) {
-            framebuffer[byteIndex1] |= 0x07; // R1=1, G1=1, B1=1
-        } else {
-            framebuffer[byteIndex1] |= 0x70; // R2=1, G2=1, B2=1
-        }
-
-        if (isFirstPixel2) {
-            framebuffer[byteIndex2] |= 0x07; // R1=1, G1=1, B1=1
-        } else {
-            framebuffer[byteIndex2] |= 0x70; // R2=1, G2=1, B2=1
-        }
-    }
-}
 void setPixel(uint8_t x, uint8_t y, uint8_t color)
 {
 	if (x > MATRIX_WIDTH || y > MATRIX_HEIGHT)
@@ -490,17 +436,24 @@ void init_exti() {
 void EXTI0_1_IRQHandler(){
     EXTI->PR = EXTI_PR_PR0;
 
+    if (game_over_state) {
+        restart_requested = 1;
+        return;
+    }
+
     if (block_position >= 55 && color_index==0){
         g_score = g_score + 50;
         printf("Hit!\n");
         g_hit = 1;
         g_miss = 0;
+        current_offset = offset0;
     } else{
         missed_notes++;
         printf("Missed!\n");
         printf("%d\n", missed_notes);    
         g_hit = 0;
         g_miss = 1;
+        current_offset = offset0;
     }
     
     togglexn(GPIOC, 6);
@@ -508,59 +461,99 @@ void EXTI0_1_IRQHandler(){
 
 void EXTI2_3_IRQHandler(){
     if (EXTI->PR & EXTI_PR_PR2) {
-        togglexn(GPIOC, 7);      // Toggle pin PC7
+        EXTI->PR = EXTI_PR_PR2;
+        
+        if (game_over_state) {
+            restart_requested = 1;
+            return;
+        }
 
-    if (block_position >= 55 && color_index==1){
-        g_score = g_score + 50;
-        printf("Hit!\n");    
-        g_hit = 1;
-        g_miss = 0;
-    } else{
-        missed_notes++;
-        printf("Missed!\n");
-        printf("%d\n", missed_notes);  
-        g_hit = 0;
-        g_miss = 1;  
+        togglexn(GPIOC, 7);
+
+        if (block_position >= 55 && color_index==1){
+            g_score = g_score + 50;
+            printf("Hit!\n");    
+            g_hit = 1;
+            g_miss = 0;
+            current_offset = offset0;
+        } else{
+            missed_notes++;
+            printf("Missed!\n");
+            printf("%d\n", missed_notes);  
+            g_hit = 0;
+            g_miss = 1;
+            current_offset = offset0;
+        }
     }
 
-        EXTI->PR = EXTI_PR_PR2;  // Clear the interrupt pending flag for EXTI line 2
-    }
-
-    // Check if the interrupt was triggered by EXTI line 3
     if (EXTI->PR & EXTI_PR_PR3) {
-        togglexn(GPIOC, 8); // Toggle pin PC8
+        EXTI->PR = EXTI_PR_PR3;
+        
+        if (game_over_state) {
+            restart_requested = 1;
+            return;
+        }
+
+        togglexn(GPIOC, 8);
+        
         if (block_position >= 55 && color_index==2){
             g_score = g_score + 50;
             printf("Hit!\n");
             g_hit = 1;
             g_miss = 0;      
+            current_offset = offset0;
         } else{
             missed_notes++;
             printf("Missed!\n"); 
             printf("%d\n", missed_notes);
             g_hit = 0;
             g_miss = 1;   
+            current_offset = offset0;
         }
-        
-        EXTI->PR = EXTI_PR_PR3;  // Clear the interrupt pending flag for EXTI line 3
     }
 }
 
+
+// void EXTI4_15_IRQHandler(){
+//     EXTI->PR = EXTI_PR_PR4;
+
+//     if (block_position >= 55 && color_index==3){
+//                 g_score = g_score + 50;
+//                 printf("Hit!\n");    
+//                 g_hit = 1;
+//                 g_miss=0;
+//             } else{
+//                 missed_notes++;
+//                 printf("Missed!\n");
+//             printf("%d\n", missed_notes);
+//                 g_hit = 0;
+//                 g_miss = 1;    
+//             }
+            
+//     togglexn(GPIOC, 9);
+// }
 void EXTI4_15_IRQHandler(){
     EXTI->PR = EXTI_PR_PR4;
 
+    if (game_over_state) {
+        restart_requested = 1;
+        return;
+    }
+
     if (block_position >= 55 && color_index==3){
-                g_score = g_score + 50;
-                printf("Hit!\n");    
-                g_hit = 1;
-                g_miss=0;
-            } else{
-                missed_notes++;
-                printf("Missed!\n");
-            printf("%d\n", missed_notes);
-                g_hit = 0;
-                g_miss = 1;    
-            }
+        g_score = g_score + 50;
+        printf("Hit!\n");    
+        g_hit = 1;
+        g_miss=0;
+        current_offset = offset0;
+    } else{
+        missed_notes++;
+        printf("Missed!\n");
+        printf("%d\n", missed_notes);
+        g_hit = 0;
+        g_miss = 1;    
+        current_offset = offset0;
+    }
             
     togglexn(GPIOC, 9);
 }
@@ -626,9 +619,6 @@ void init_usart5() {
     USART5->CR1 |= USART_CR1_UE;
 }
 
-#define FIFOSIZE 16
-char serfifo[FIFOSIZE];
-int seroffset = 0;
 
 void enable_tty_interrupt(void) {
     USART5->CR1 |= USART_CR1_RXNEIE;
@@ -850,6 +840,13 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
     const int scoreStartIndex = 9;
     const int scoreEndIndex = 13;
 
+    display[1 + 0] = 0x200 + 'S';
+    display[1 + 1] = 0x200 + 'c';
+    display[1 + 2] = 0x200 + 'o';
+    display[1 + 3] = 0x200 + 'r';
+    display[1 + 4] = 0x200 + 'e';
+    display[1 + 5] = 0x200 + ':';
+    display[1 + 6] = 0x200 + ' ';
     // Ensure score fits within the range (5 digits max)
     if (internal_score > 99999) {
         internal_score = 99999; // Clamp the score to the maximum displayable value
@@ -908,6 +905,212 @@ void updateDisplay(uint32_t internal_score, int hit, int miss) {
     }
 }
 
+void displayGameOver(uint32_t final_score) {
+    // First display: Game Over + Score
+    // Clear display first (optional)
+    for(int i = 0; i < 34; i++) {
+        display[i] = 0x200 + ' ';
+    }
+    
+    // Set cursor to first line (index 0)
+    display[0] = 0x002;
+    
+    // Write "GAME OVER!"
+    const int line1Start = 1;
+    display[line1Start + 0] = 0x200 + 'G';
+    display[line1Start + 1] = 0x200 + 'A';
+    display[line1Start + 2] = 0x200 + 'M';
+    display[line1Start + 3] = 0x200 + 'E';
+    display[line1Start + 4] = 0x200 + ' ';
+    display[line1Start + 5] = 0x200 + 'O';
+    display[line1Start + 6] = 0x200 + 'V';
+    display[line1Start + 7] = 0x200 + 'E';
+    display[line1Start + 8] = 0x200 + 'R';
+    display[line1Start + 9] = 0x200 + '!';
+    
+    // Set cursor to second line
+    display[17] = 0x0c0;
+    
+    // Write "Score: " and the score
+    const int line2Start = 18;
+    display[line2Start + 0] = 0x200 + 'S';
+    display[line2Start + 1] = 0x200 + 'c';
+    display[line2Start + 2] = 0x200 + 'o';
+    display[line2Start + 3] = 0x200 + 'r';
+    display[line2Start + 4] = 0x200 + 'e';
+    display[line2Start + 5] = 0x200 + ':';
+    display[line2Start + 6] = 0x200 + ' ';
+    
+    // Convert score to digits
+    int scorePos = line2Start + 7;
+    if (final_score > 99999) final_score = 99999;
+    
+    // Fill score digits
+    int tempScore = final_score;
+    int digitPos = scorePos + 4; // Start from rightmost position
+    for(int i = 0; i < 5; i++) {
+        display[digitPos] = 0x200 + ('0' + (tempScore % 10));
+        tempScore /= 10;
+        digitPos--;
+    }
+    
+    // Wait 3 seconds
+    nano_wait(5000000000);
+    
+    // Second display: High Score
+    uint32_t high_score = I2C_EEPROM_Read_HighScore();
+    
+    // Clear first line
+    for(int i = 1; i <= 16; i++) {
+        display[i] = 0x200 + ' ';
+    }
+    
+    // Write "HIGH SCORE:"
+    display[line1Start + 0] = 0x200 + 'H';
+    display[line1Start + 1] = 0x200 + 'I';
+    display[line1Start + 2] = 0x200 + 'G';
+    display[line1Start + 3] = 0x200 + 'H';
+    display[line1Start + 4] = 0x200 + ' ';
+    display[line1Start + 5] = 0x200 + 'S';
+    display[line1Start + 6] = 0x200 + 'C';
+    display[line1Start + 7] = 0x200 + 'O';
+    display[line1Start + 8] = 0x200 + 'R';
+    display[line1Start + 9] = 0x200 + 'E';
+    
+    // Clear second line
+    for(int i = 18; i <= 33; i++) {
+        display[i] = 0x200 + ' ';
+    }
+    
+    // Display high score
+    tempScore = high_score;
+    digitPos = line2Start + 4; // Center the high score
+    for(int i = 0; i < 5; i++) {
+        display[digitPos] = 0x200 + ('0' + (tempScore % 10));
+        tempScore /= 10;
+        digitPos--;
+    }
+    
+    // Wait 3 seconds
+    nano_wait(5000000000);
+    
+    // If it's a new high score
+    if (final_score >= high_score) {
+        // Clear both lines
+        for(int i = 1; i <= 16; i++) {
+            display[i] = 0x200 + ' ';
+        }
+        for(int i = 18; i <= 33; i++) {
+            display[i] = 0x200 + ' ';
+        }
+        
+        // Write "NEW RECORD!"
+        display[line1Start + 0] = 0x200 + 'N';
+        display[line1Start + 1] = 0x200 + 'E';
+        display[line1Start + 2] = 0x200 + 'W';
+        display[line1Start + 3] = 0x200 + ' ';
+        display[line1Start + 4] = 0x200 + 'R';
+        display[line1Start + 5] = 0x200 + 'E';
+        display[line1Start + 6] = 0x200 + 'C';
+        display[line1Start + 7] = 0x200 + 'O';
+        display[line1Start + 8] = 0x200 + 'R';
+        display[line1Start + 9] = 0x200 + 'D';
+        display[line1Start + 10] = 0x200 + '!';
+        
+        // Write "GREAT JOB!"
+        display[line2Start + 0] = 0x200 + 'G';
+        display[line2Start + 1] = 0x200 + 'R';
+        display[line2Start + 2] = 0x200 + 'E';
+        display[line2Start + 3] = 0x200 + 'A';
+        display[line2Start + 4] = 0x200 + 'T';
+        display[line2Start + 5] = 0x200 + ' ';
+        display[line2Start + 6] = 0x200 + 'J';
+        display[line2Start + 7] = 0x200 + 'O';
+        display[line2Start + 8] = 0x200 + 'B';
+        display[line2Start + 9] = 0x200 + '!';
+        
+        // Wait 3 seconds
+        nano_wait(5000000000);
+    }
+    
+    // Final "Press to restart" message
+    for(int i = 1; i <= 16; i++) {
+        display[i] = 0x200 + ' ';
+    }
+    for(int i = 18; i <= 33; i++) {
+        display[i] = 0x200 + ' ';
+    }
+    
+    // Write "PRESS ANY KEY"
+    display[line1Start + 0] = 0x200 + 'P';
+    display[line1Start + 1] = 0x200 + 'R';
+    display[line1Start + 2] = 0x200 + 'E';
+    display[line1Start + 3] = 0x200 + 'S';
+    display[line1Start + 4] = 0x200 + 'S';
+    display[line1Start + 5] = 0x200 + ' ';
+    display[line1Start + 6] = 0x200 + 'K';
+    display[line1Start + 7] = 0x200 + 'E';
+    display[line1Start + 8] = 0x200 + 'Y';
+    
+    // Write "TO RESTART"
+    display[line2Start + 0] = 0x200 + 'T';
+    display[line2Start + 1] = 0x200 + 'O';
+    display[line2Start + 2] = 0x200 + ' ';
+    display[line2Start + 3] = 0x200 + 'R';
+    display[line2Start + 4] = 0x200 + 'E';
+    display[line2Start + 5] = 0x200 + 'S';
+    display[line2Start + 6] = 0x200 + 'T';
+    display[line2Start + 7] = 0x200 + 'A';
+    display[line2Start + 8] = 0x200 + 'R';
+    display[line2Start + 9] = 0x200 + 'T';
+    nano_wait(5000000000);
+}
+
+void reset_game(void) {
+    // Reset all game variables
+    missed_notes = 0;
+    g_score = 0;
+    g_hit = 0;
+    g_miss = 0;
+    block_position = 0;  // If you have this variable
+    color_index = 0;     // If you have this variable
+    game_over_state = 0;
+    restart_requested = 0;
+
+    // Clear display
+    // Add any display clearing code you need
+
+    // Re-enable timers
+    TIM2->CR1 |= TIM_CR1_CEN;
+    TIM6->CR1 |= TIM_CR1_CEN;
+    TIM7->CR1 |= TIM_CR1_CEN;
+    TIM14->CR1 |= TIM_CR1_CEN;
+
+    // Optional: Display "Ready!" message
+    const int line1Start = 1;
+    const int line2Start = 18;
+
+    // Clear display
+    for(int i = 0; i < 34; i++) {
+        display[i] = 0x200 + ' ';
+    }
+
+    // Set cursor positions
+    display[0] = 0x002;
+    display[17] = 0x0c0;
+
+    // Write "READY!"
+    display[line1Start + 0] = 0x200 + 'R';
+    display[line1Start + 1] = 0x200 + 'E';
+    display[line1Start + 2] = 0x200 + 'A';
+    display[line1Start + 3] = 0x200 + 'D';
+    display[line1Start + 4] = 0x200 + 'Y';
+    display[line1Start + 5] = 0x200 + '!';
+
+    // Wait briefly
+    nano_wait(4000000000);
+}
+
 
 //============================================================================
 // Timer 2 ISR
@@ -922,7 +1125,7 @@ void TIM2_IRQHandler(void){
 void init_tim2(void) {
     RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
     TIM2->PSC = 4800-1;
-    TIM2->ARR = 10000-1;
+    TIM2->ARR = 5000-1;
     TIM2->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] |= (1<<15);
     TIM2->CR1 |= TIM_CR1_CEN;
@@ -940,16 +1143,9 @@ void set_freq(int chan, float f) {
     if (chan == 0) {
         if (f == 0.0) {
             step0 = 0;
-            offset0 = 0;
-        } else
-            step0 = (f * N / RATE) * (1<<16);
-    }
-    if (chan == 1) {
-        if (f == 0.0) {
-            step1 = 0;
             offset1 = 0;
         } else
-            step1 = (f * N / RATE) * (1<<16);
+            step0 = (f * N / RATE) * (1<<16);
     }
 }
 
@@ -991,11 +1187,10 @@ void TIM6_DAC_IRQHandler(void){// Implemented for music
      TIM6->SR &= ~TIM_SR_UIF; // Clear interrupt flag
 
     offset0++;
-    if (offset0 >= 209273) {
-        offset0 = 120000; // Loop audio data
+    if (offset0 >= 200000) {
+        offset0 = 160000; // Loop audio data
     }
-
-    int samp = projectsong_audio_data[offset0]; 
+    samp = projectsong_audio_data[offset0]; 
     samp = (samp * volume);  // Apply volume scaling
     samp = (samp * 4095) / 255; // Scale 8-bit to 12-bit
     DAC->DHR12R1 = samp; // Output to DAC
@@ -1003,16 +1198,13 @@ void TIM6_DAC_IRQHandler(void){// Implemented for music
 
 void init_tim6(void) {
     RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
-    TIM6->PSC = 48-1;
+    TIM6->PSC = 60-1; //48
     TIM6->ARR = (1000000/RATE)-1;
     TIM6->DIER |= TIM_DIER_UIE;
     NVIC->ISER[0] = (1<<17);
     TIM6->CR1 |= TIM_CR1_CEN;
     TIM6->CR2 |= TIM_CR2_MMS_1;
 }
-
-#define EEPROM_ADDR 0x57
-#define HIGH_SCORE_ADDR 0x64
 
 void i2c_ports(void) 
 {
@@ -1123,7 +1315,7 @@ int I2C_EEPROM_Write_HighScore(uint32_t score) {
 }
 
 // Read High Score from EEPROM
-uint32_t I2C_EEPROM_Read_HighScore(void) {
+uint32_t I2C_EEPROM_Read_HighScore() {
     uint8_t addr[2];
     uint16_t score = 0;
 
@@ -1262,7 +1454,24 @@ void readHighScore(int argc, char* argv[]) {
     printf("Current high score: %lu\n", score);
 }
 
-void updateHighScore(int argc, char* argv[]) {
+void updateHighScore(uint16_t new_score) {
+    printf("Attempting to update high score with: %lu\n", new_score);
+    
+    uint32_t old_score = I2C_EEPROM_Read_HighScore();
+    printf("Previous high score: %lu\n", old_score);
+    
+    Update_High_Score(new_score);
+    
+    uint32_t current_score = I2C_EEPROM_Read_HighScore();
+    printf("New high score: %lu\n", current_score);
+}
+
+struct commands_t {
+    const char *cmd;
+    void      (*fn)(int argc, char *argv[]);
+};
+
+void updateHighScoreCmd(int argc, char* argv[]) {
     if (argc != 2) {
         printf("Usage: updatehigh <score>\n");
         printf("Example: updatehigh 2000\n");
@@ -1281,16 +1490,12 @@ void updateHighScore(int argc, char* argv[]) {
     printf("New high score: %lu\n", current_score);
 }
 
-struct commands_t {
-    const char *cmd;
-    void      (*fn)(int argc, char *argv[]);
-};
 
 
 struct commands_t cmds[] = {
     { "writehigh", writeHighScore },
     { "readhigh", readHighScore },
-    { "updatehigh", updateHighScore }
+    { "updatehigh", updateHighScoreCmd }
 };
 
 
