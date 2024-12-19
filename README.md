@@ -6,8 +6,7 @@ Objectives:
 - Generate and play music through the DAC, and provide audio feedback for hits or misses.
 - Store and display the user’s score using SOC1602A OLED display and manage audio file access through the I2C protocol.
 
-What are the main features of your project? Describe the hardware you plan to use, what parts you wish to acquire (include purchase links for non-kit-based parts), and what your code will do to make the project work:
-- Hardware we plan to use:
+Main Features
 - 64x32 RGB LED Matrix - 4mm pitch: ID 2278
 - LM324
 - TRRS Jack
